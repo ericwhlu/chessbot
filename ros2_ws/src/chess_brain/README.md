@@ -8,7 +8,7 @@ Design: `docs/CHESS_BRAIN_PLAN.md` at the repo root.
 
 - [x] `game.py` — `GameState` (full state, move inference from placement), `Engine` (UCI wrapper)
 - [x] `cli.py` — play against the real detector: `python -m chess_brain.cli`
-- [ ] `actions.py` — move → arm actions
+- [x] `actions.py` — move → arm pick/place actions (captures, castling, en passant; queen promotion behind a flag)
 - [ ] `brain_node.py` — ROS 2 node
 - [ ] interface contract (see plan §4)
 
