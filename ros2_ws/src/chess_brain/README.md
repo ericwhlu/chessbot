@@ -97,7 +97,7 @@ Start the container as in the repo README (the repo is mounted at `/chessbot`), 
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-bash /chessbot/ros2_ws/src/chess_brain/scripts/setup_deps.sh   # stockfish (apt) + python-chess (pip); once per container
+bash /chessbot/ros2_ws/src/chess_brain/scripts/setup_deps.sh   # stockfish (apt) + python-chess (pip, for /usr/bin/python3); once per container
 cd /chessbot/ros2_ws
 colcon build --symlink-install --packages-select chess_brain
 source install/setup.bash

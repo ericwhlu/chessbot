@@ -1,0 +1,54 @@
+Date: Mon 2026-11-09 23:24–23:28 (America/New_York)
+Machine: course VM vcm-54426 (zz472), Docker image
+         ghcr.io/mems-intro-to-robotics/mems-robotics-toolkit:kinova-jazzy-latest, ROS 2 Jazzy
+Branch:  feature/chess-brain @ 2fd8874
+Test:    first run of the chess_brain node on real ROS 2. One full turn driven by hand:
+         scripts/demo_turn.sh plays the parts of vision and the arm with `ros2 topic pub`.
+
+Result: PASS. placement FEN in -> human move inferred (e2e4) -> Stockfish 16 reply (d7d6) ->
+        arm_actions id 1 published -> arm_done ok -> move applied, white to move, state wait_human.
+
+--- terminal 1 (container): build and run -------------------------------------------------
+$ bash /chessbot/ros2_ws/src/chess_brain/scripts/setup_deps.sh
+[setup_deps] installing stockfish with apt-get ...
+Setting up stockfish (16-1build1) ...
+[setup_deps] installing python-chess with pip ...
+Successfully installed chess-1.11.2
+[setup_deps] python-chess OK: 1.11.2
+[setup_deps] stockfish OK: /usr/games/stockfish
+$ colcon build --symlink-install --packages-select chess_brain
+Starting >>> chess_brain
+Finished <<< chess_brain [2.02s]
+Summary: 1 package finished [2.34s]
+$ ros2 run chess_brain brain_node --ros-args -p robot_color:=black -p first_action_id:=0
+[INFO] [chess_brain]: chess_brain ready: engine=Stockfish 16 (/usr/games/stockfish), robot=black,
+       stable_time=1s, allow_promotion=False, first arm_actions id=1
+[INFO] [chess_brain]: status: setup / setup waiting for a stable detection of the start position (or cmd: start)
+
+--- terminal 2 (docker exec into the same container) --------------------------------------
+$ bash /chessbot/ros2_ws/src/chess_brain/scripts/demo_turn.sh
+[demo] 1/4 vision: start position
+[demo] 2/4 vision: the human played e2e4
+[demo] 3/4 arm: done, id 1
+[demo] 4/4 board state and status as the brain sees them now:
+data: rnbqkbnr/ppp1pppp/3p4/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2
+---
+data: '{"state": "wait_human", "status": "waiting_human", "detail": "robot move done; waiting for a
+  detection taken after the arm finished", "fen": "rnbqkbnr/ppp1pppp/3p4/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+  "expected_placement": "rnbqkbnr/ppp1pppp/3p4/8/4P3/8/PPPP1PPP/RNBQKBNR", "turn": "white", "check": false,
+  "result": null, "move_id": 1}'
+---
+[demo] expected: black has moved, it is white's turn, state wait_human
+
+--- setback found and fixed ---------------------------------------------------------------
+First `ros2 run` failed with "ModuleNotFoundError: No module named 'chess'":
+  * in this image, `python3` on PATH is a virtualenv (/opt/ros_python/bin/python3), so pip installed
+    python-chess there;
+  * ROS entry points are generated with `#!/usr/bin/python3`, which does not see that virtualenv.
+Workaround used in this run:
+  python3 -m pip install --target /opt/chess_deps "chess>=1.10,<2" && export PYTHONPATH=/opt/chess_deps:$PYTHONPATH
+Permanent fix: setup_deps.sh now installs python-chess for /usr/bin/python3 (committed after this run;
+to be re-verified in a fresh container).
+
+Also learned: python3-chess is not packaged for Ubuntu 24.04 (pip only); Stockfish from apt lands in
+/usr/games, which is not on root's PATH in the container (the node finds it there automatically).
