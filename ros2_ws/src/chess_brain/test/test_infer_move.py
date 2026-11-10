@@ -106,29 +106,24 @@ def test_stalemate_detected():
     assert game.outcome().termination == chess.Termination.STALEMATE
 
 
-def test_threefold_repetition_ends_game():
+def test_threefold_repetition_ends_game_on_the_third_occurrence_not_before():
     # K+R vs K (not K+N: that is insufficient material and ends the game at once)
     game = GameState("4k3/8/8/8/8/8/8/4K2R w - - 0 1")
     cycle = ["h1g1", "e8d8", "g1h1", "d8e8"]
-    for uci in cycle:
+    for uci in cycle + cycle[:3]:
         game.apply(chess.Move.from_uci(uci))
-    assert not game.is_game_over(), "second occurrence is not yet claimable"
-    # python-chess allows the claim as soon as a legal move would complete the
-    # third occurrence, i.e. one ply early — so after the full second cycle it
-    # must certainly be over.
-    for uci in cycle:
-        if game.is_game_over():
-            break
-        game.apply(chess.Move.from_uci(uci))
+        # python-chess would already let a player *claim* the draw one ply early;
+        # the robot only stops when the position has really occurred three times.
+        assert not game.is_game_over(), uci
+    game.apply(chess.Move.from_uci(cycle[3]))      # start position, third occurrence
     assert game.is_game_over()
     assert game.outcome().termination == chess.Termination.THREEFOLD_REPETITION
+    assert game.status()["result"] == "1/2-1/2"
 
 
-def test_fifty_move_rule_ends_game():
-    # python-chess lets the 50-move claim fire one ply early (a legal move would
-    # reach clock 100), so start at 98: not claimable; after one move (99) it is.
-    game = GameState("4k3/8/8/8/8/8/8/4K2R w - - 98 80")
-    assert not game.is_game_over()
+def test_fifty_move_rule_ends_game_at_clock_100():
+    game = GameState("4k3/8/8/8/8/8/8/4K2R w - - 99 80")
+    assert not game.is_game_over()                 # claimable by python-chess, but not yet reached
     game.apply(chess.Move.from_uci("h1g1"))
     assert game.is_game_over()
     assert game.outcome().termination == chess.Termination.FIFTY_MOVES

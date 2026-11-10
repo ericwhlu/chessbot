@@ -14,17 +14,20 @@ Design rules (see docs/CHESS_BRAIN_PLAN.md §3.1):
   castling move would be judged illegal.
 * Every incoming placement string is canonicalised through ``chess.BaseBoard``
   and never crashes the caller.
-* Game-over uses ``claim_draw=True`` so threefold repetition and the 50-move
-  rule end the game (python-chess's default ignores both). Insufficient
-  material (e.g. K+N vs K) ends the game automatically, no claim needed.
+* Threefold repetition and the 50-move rule end the game when they have
+  actually occurred (see ``GameState.outcome``). Insufficient material
+  (e.g. K+N vs K) ends the game automatically.
 * The engine is only asked on the robot's turn and never on a finished game;
   an engine under-promotion is replaced by a queen promotion.
 """
 
 from __future__ import annotations
 
+import itertools
+import os
+import shutil
 from dataclasses import dataclass, field
-from typing import Literal, Optional, Sequence, Union
+from typing import Iterable, Literal, Optional, Sequence, Union
 
 import chess
 import chess.engine
@@ -32,6 +35,31 @@ import chess.engine
 InferKind = Literal["no_change", "move", "illegal_or_misread", "ambiguous"]
 
 PLACEMENT_FIELDS = 6  # a full FEN has exactly six space-separated fields
+
+_GAME_IDS = itertools.count(1)
+
+# Where Stockfish usually lives when it is not on PATH. Ubuntu's apt package
+# installs to /usr/games, which is NOT on root's PATH inside Docker.
+_STOCKFISH_FALLBACKS = (
+    "/usr/games/stockfish",
+    "/chessbot/bin/stockfish",
+    "/opt/homebrew/bin/stockfish",
+    "/usr/local/bin/stockfish",
+)
+
+
+def resolve_engine_command(command):
+    """Return ``command`` with a bare ``stockfish`` resolved to a real path if possible."""
+    if not isinstance(command, str):
+        return command
+    found = shutil.which(command)
+    if found:
+        return found
+    if os.path.basename(command) == "stockfish":
+        for candidate in _STOCKFISH_FALLBACKS:
+            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                return candidate
+    return command
 
 
 def canonical_placement(text: str) -> Optional[str]:
@@ -80,6 +108,15 @@ class GameState:
         if not self.board.is_valid():
             raise ValueError(f"start_fen is not a legal position: status={self.board.status()!r}")
         self.robot_color: chess.Color = robot_color
+        self.game_id: int = next(_GAME_IDS)  # stable across copy(); tells the engine when a new game starts
+
+    def copy(self) -> "GameState":
+        """Independent snapshot (same game_id), safe to hand to the engine thread."""
+        other = object.__new__(GameState)
+        other.board = self.board.copy()
+        other.robot_color = self.robot_color
+        other.game_id = self.game_id
+        return other
 
     # ------------------------------------------------------------------ queries
     @property
@@ -102,8 +139,20 @@ class GameState:
         return self.board.fen()
 
     def outcome(self) -> Optional[chess.Outcome]:
-        """Game result including claimable draws (threefold, 50-move)."""
-        return self.board.outcome(claim_draw=True)
+        """Game result, ending drawn games when the draw has actually occurred.
+
+        python-chess's default ignores threefold repetition and the 50-move rule
+        (it waits for fivefold / 75 moves), while ``claim_draw=True`` ends the game
+        one ply EARLY, as soon as some legal move *could* complete the repetition.
+        Neither suits an unattended robot, so: end on the third actual occurrence
+        of a position, or when the halfmove clock reaches 100.
+        """
+        outcome = self.board.outcome(claim_draw=False)
+        if outcome is None and self.board.is_fifty_moves():
+            outcome = chess.Outcome(chess.Termination.FIFTY_MOVES, None)
+        if outcome is None and self.board.is_repetition(3):
+            outcome = chess.Outcome(chess.Termination.THREEFOLD_REPETITION, None)
+        return outcome
 
     def is_game_over(self) -> bool:
         return self.outcome() is not None
@@ -183,7 +232,8 @@ class Engine:
         skill_level: Optional[int] = None,
     ):
         self.think_time = float(think_time)
-        self._engine = chess.engine.SimpleEngine.popen_uci(command)
+        self.command = resolve_engine_command(command)
+        self._engine = chess.engine.SimpleEngine.popen_uci(self.command)
         self.skill_level_supported = "Skill Level" in self._engine.options
         if skill_level is not None and self.skill_level_supported:
             opt = self._engine.options["Skill Level"]
@@ -200,22 +250,34 @@ class Engine:
     def name(self) -> str:
         return self._engine.id.get("name", "unknown")
 
-    def reply(self, game: GameState) -> Optional[chess.Move]:
+    def reply(self, game: GameState, root_moves: Optional[Iterable[chess.Move]] = None) -> Optional[chess.Move]:
         """Return the robot's move, or ``None`` if the game is over.
 
         Only valid on the robot's turn. An engine under-promotion is replaced by
         a queen promotion (always legal when the under-promotion is; the table
         only has spare queens).
+
+        ``root_moves`` restricts the search to those moves (UCI ``searchmoves``);
+        the node uses it to exclude moves the arm cannot execute yet.
         """
         board = game.board
         if board.turn != game.robot_color:
             raise RuntimeError("Engine.reply called on the human's turn")
         if game.outcome() is not None:
             return None
+        if root_moves is not None:
+            root_moves = list(root_moves)
+            if not root_moves:
+                raise ValueError("root_moves is empty")
 
-        # game=... makes python-chess send `ucinewgame` when a different GameState
+        # game=... makes python-chess send `ucinewgame` when a different game
         # is played through the same engine (clears hash/history).
-        result = self._engine.play(board, chess.engine.Limit(time=self.think_time), game=id(game))
+        result = self._engine.play(
+            board,
+            chess.engine.Limit(time=self.think_time),
+            game=game.game_id,
+            root_moves=root_moves,
+        )
         move = result.move
         if move is None:  # engine answered "bestmove (none)" or resigned
             return None
@@ -223,6 +285,8 @@ class Engine:
             move = chess.Move(move.from_square, move.to_square, promotion=chess.QUEEN)
         if move not in board.legal_moves:
             raise RuntimeError(f"engine returned illegal move {move.uci()} for {board.fen()}")
+        if root_moves is not None and move not in root_moves:
+            raise RuntimeError(f"engine ignored searchmoves and returned {move.uci()}")
         return move
 
     def close(self) -> None:

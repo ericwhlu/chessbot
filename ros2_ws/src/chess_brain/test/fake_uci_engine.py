@@ -54,6 +54,9 @@ def main() -> None:
                 board.push_uci(uci)
         elif cmd == "go":
             legal = list(board.legal_moves)
+            if "searchmoves" in rest:  # always the last `go` argument
+                wanted = set(rest[rest.index("searchmoves") + 1:])
+                legal = [m for m in legal if m.uci() in wanted]
             if not legal:
                 emit("bestmove (none)")
                 continue
