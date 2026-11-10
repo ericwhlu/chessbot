@@ -1,0 +1,23 @@
+Date: Mon 2026-11-02 15:40 (America/New_York)
+Machine: David's MacBook Pro, Python 3 venv, python-chess 1.11.2, pytest 9.2.0
+Package: ros2_ws/src/chess_brain (game.py + test suite), no ROS required
+
+$ pytest -q
+.....s........................................................................................... [ 91%]
+.........                                                                                         [100%]
+105 passed, 1 skipped in 6.89s
+
+Skipped: test_engine.py::test_real_stockfish_replies_legally (stockfish not installed yet —
+brew blocked by the Xcode license prompt; all other engine tests ran against the fake UCI engine).
+
+What the 106 tests cover:
+- 19 fixture cases for infer_human_move: normal, capture, castling x4, en passant both colours,
+  en passant with the captured pawn not removed (misread), promotion to queen, human
+  under-promotion, promotion-with-capture, piece lifted (transient), illegal hop, malformed
+  string, full FEN pasted instead of placement, checkmate delivered by the human.
+  Fixture #1 is the real placement FEN copied from Atharva's detector demo after 1.e4.
+- start_fen must be a full 6-field FEN (placement-only rejected); castling rights preserved.
+- game-over policy: checkmate, stalemate, threefold repetition, 50-move rule (claim_draw=True).
+- property test: 60 random games (biased to castling/e.p./promotion), every ply inferred exactly.
+- engine wrapper against a fake UCI engine: legal reply, refuses on the human's turn, None on a
+  finished game, under-promotion replaced by queen, 200 plies without error.
