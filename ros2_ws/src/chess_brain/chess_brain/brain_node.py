@@ -12,6 +12,9 @@ Topics (all ``std_msgs/String``; names are relative, so they can be remapped):
                             later. An arm that missed it shows up as arm_timeout -> RECOVER.
     chessbot/status         {"state": ..., "status": ..., "detail": ..., "fen": ..., ...}   (latched)
     chessbot/board_state    full 6-field FEN after every applied move                       (latched)
+    chessbot/detect_request "setup" | "after_robot_move" | "arm_failed" | "board_changed" | "retry":
+                            the brain asks vision for one fresh detection (same topic the
+                            operator's button publishes on, with data "button")
 
 Design rules:
 
@@ -122,6 +125,7 @@ class BrainNode(Node):
             self._pub_actions = self.create_publisher(String, "chessbot/arm_actions", 10)
             self._pub_status = self.create_publisher(String, "chessbot/status", LATCHED)
             self._pub_board = self.create_publisher(String, "chessbot/board_state", LATCHED)
+            self._pub_detect = self.create_publisher(String, "chessbot/detect_request", 10)
 
             self.create_subscription(String, "chessbot/detected_fen", self._on_detection, DETECTION)
             self.create_subscription(String, "chessbot/arm_done", self._on_arm_done, 10)
@@ -164,6 +168,8 @@ class BrainNode(Node):
                 self._pub_status.publish(String(data=json.dumps(payload)))
             elif topic == "board_state":
                 self._pub_board.publish(String(data=payload))
+            elif topic == "detect_request":
+                self._pub_detect.publish(String(data=payload))
 
     # ------------------------------------------------------------------ shutdown
     def shutdown(self) -> None:

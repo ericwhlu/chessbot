@@ -26,6 +26,9 @@ Rules (docs/CHESS_BRAIN_PLAN.md §3.3):
   only a detection received *after* its ``arm_done`` is trusted.
 * ``illegal_move`` / ``arm_mismatch`` are advisory: the machine keeps waiting
   for the board to become a position it understands.
+* Whenever the machine needs to know what the board looks like (new game, robot
+  move finished, arm failed, retry requested) it emits a ``detect_request`` so
+  button-triggered vision does not need a human to press the button for it.
 """
 
 from __future__ import annotations
@@ -51,7 +54,8 @@ class State(str, Enum):
     ERROR = "error"
 
 
-Output = Tuple[str, Any]  # (topic, payload): "arm_actions" | "status" -> dict, "board_state" -> str
+# (topic, payload): "arm_actions" | "status" -> dict; "board_state" | "detect_request" -> str
+Output = Tuple[str, Any]
 
 
 @dataclass
@@ -143,6 +147,9 @@ class BrainMachine:
         if status != self._last_status:
             self._last_status = status
             self._out.append(("status", status))
+        if self._detect is not None:
+            self._out.append(("detect_request", self._detect))
+            self._detect = None
         out, self._out = self._out, []
         return out
 
@@ -177,6 +184,7 @@ class BrainMachine:
         self._retries = 0
         self._recover_kind = ""
         self._force_retry = False
+        self._detect: Optional[str] = "setup"  # reason for a pending detect_request, published by tick()
         self._arm_msgs = []
 
     def _set(self, state: State, status: str, detail: str = "") -> None:
@@ -198,6 +206,7 @@ class BrainMachine:
             self._force_retry = True
             self._handled = None
             self._detail = f"retry requested: needs a fresh detection showing {self.game.placement()}"
+            self._detect = "retry"
         elif cmd == "retry" and self.state == State.ERROR and self.game.robot_to_move and not self.game.is_game_over():
             self._start_think(now)
         else:
@@ -362,6 +371,8 @@ class BrainMachine:
             self._game_over()
         else:
             hint = "" if verified else "robot move done; waiting for a detection taken after the arm finished"
+            if not verified:
+                self._detect = "after_robot_move"
             self._set(State.WAIT_HUMAN, "waiting_human", hint)
 
     def _tick_executing(self, now: float) -> None:
@@ -392,6 +403,8 @@ class BrainMachine:
         self._gate = gate            # only detections from now on can decide what happened
         self._recover_kind = kind    # "arm_failed" | "arm_timeout" | "board_changed"
         self._set(State.RECOVER, kind, self._recover_detail(kind, reason))
+        if kind != "arm_timeout":  # after a timeout the arm may still be in the camera's view
+            self._detect = kind
 
     def _tick_recover(self, now: float) -> None:
         msg = self._take_arm_done()
@@ -403,6 +416,7 @@ class BrainMachine:
             self._recover_kind = self._status = "arm_failed"
             self._detail = self._recover_detail("arm_failed", msg["reason"])
             self._handled = None
+            self._detect = "arm_failed"
 
         placement = self._stable(now)
         if placement is None or placement == self._handled:

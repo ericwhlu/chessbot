@@ -2,7 +2,7 @@
 
 Owner: David Zeng · Role: chess rules, Stockfish integration, game-state tracking, robot move selection
 Repo: `ericwhlu/chessbot` · Stack: ROS 2 Jazzy + Gazebo Harmonic, Kinova arm, Docker image `mems-robotics-toolkit:kinova-jazzy-latest`
-Status: **v0.3 — 2026-11-09**. v0.2 was revised after three plan reviews (§11); v0.3 records what changed while implementing the node (§12).
+Status: **v0.4 — 2026-11-14**. v0.2 was revised after three plan reviews (§11); v0.3 records what changed while implementing the node (§12); v0.4 adds the simulator and operator tools (§13).
 
 ---
 
@@ -319,3 +319,17 @@ Implemented: `machine.py` (state machine, pure Python), `brain_node.py` (ROS 2 s
 | 12 | Dependencies: Stockfish via apt (`/usr/games/stockfish`, found automatically), python-chess via pip | `python3-chess` is not packaged for Ubuntu 24.04 |
 | 13 | Numeric parameters use dynamic typing; the tick timer uses a steady clock | `-p think_time:=1` must not crash the node; `use_sim_time` must not freeze it |
 | 14 | Humans must castle king-first (§3.3 rule 7 was wrong for rook-first castling: the rook move alone is legal) | Documented in the package README |
+
+## 13. Week 3 additions while waiting for the real detector and arm (v0.4, 2026-11-14)
+
+Neither the detector nor the arm pipeline is in the repository yet, so Objective 3 ("connect to the real detector") cannot start. Built instead, on the real topics, so nothing has to change when the real components arrive:
+
+| # | Addition | Purpose |
+|---|---|---|
+| 1 | `simworld.py` + `sim_world_node.py`: simulated physical board, human player (weak Stockfish / random / scripted) and arm | Whole games with no hardware (`ros2 launch chess_brain sim_game.launch.py`); the simulated arm rejects any command that picks from an empty square, places onto an occupied one, or leaves the wrong position, so it is also an independent check of every `arm_actions` message. Demo fallback if integration slips |
+| 2 | `arm_fail_every` in the simulator | Exercises and demonstrates the recovery path (arm fails → brain asks for a detection → re-sends) |
+| 3 | New topic `chessbot/detect_request`; the brain publishes it when it needs to see the board (new game, robot move finished, arm failed, retry) | The team chose button-triggered detection; without this a human would have to press the button after every robot move too |
+| 4 | `operator_node.py`: Enter = detect button, `start` / `reset` / `retry`, paste a FEN to act as vision, prints the brain's status | The "button" the team agreed on, and a way to drive the brain from the detector's web demo until the detector is a ROS node |
+| 5 | `outcome_of(board)` shared by the brain and the simulator | One draw policy in one place |
+
+Still open for Objective 3: the detector as a ROS 2 node on a Gazebo camera topic, honouring `detect_request`.

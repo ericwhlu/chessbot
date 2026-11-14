@@ -18,7 +18,9 @@ Design notes: `docs/CHESS_BRAIN_PLAN.md` at the repo root.
 - [x] `machine.py` — turn-taking state machine (pure Python, fully unit-tested)
 - [x] `brain_node.py` — ROS 2 Jazzy node (thin shell around the state machine)
 - [x] `cli.py` — play against the real detector by pasting FENs: `python -m chess_brain.cli`
-- [ ] built and hand-driven inside the course container (commands below)
+- [x] built and hand-driven inside the course container (`docs/evidence/`)
+- [x] `sim_world_node.py` — simulated human + camera + arm: plays a whole game with no hardware
+- [x] `operator_node.py` — the detect button and operator commands, from a terminal
 - [ ] connected to the real detector / the real arm
 
 ## Interface contract
@@ -33,13 +35,16 @@ All topics are `std_msgs/String`.
 | `/chessbot/status` | brain → anyone | `{"state", "status", "detail", "fen", "expected_placement", "turn", "check", "result", "move_id"}` (latched) |
 | `/chessbot/board_state` | brain → anyone | full 6-field FEN after every applied move (latched) |
 | `/chessbot/cmd` | operator → brain | `start` \| `reset` \| `retry` |
+| `/chessbot/detect_request` | button or brain → vision | "please detect once now". `button` from the operator, or the reason from the brain: `setup` \| `after_robot_move` \| `arm_failed` \| `board_changed` \| `retry` |
 
 **Vision**
 - Publishes the placement only; chess_brain owns turn, rules and move selection.
 - Either one message per detection (button press) or a continuous stream works: a placement is
   believed once it has been unchanged for `stable_time` seconds.
-- Detect once after the human moves and once after the robot's move has finished. A detection taken
-  after `arm_done` lets the brain verify the arm really made the move.
+- Button mode: subscribe to `/chessbot/detect_request` and publish one detection for every message on
+  it, whatever its text. The human presses the button (`operator_node`) after moving; the brain sends
+  the request itself when the robot's move has finished, so nobody has to press for the robot.
+- A detection taken after `arm_done` lets the brain verify the arm really made the move.
 - Publish nothing when the board is occluded.
 
 **Arm**
@@ -79,6 +84,14 @@ All topics are `std_msgs/String`.
 | `start_fen` | start position | full 6-field FEN (a placement-only FEN is rejected) |
 | `first_action_id` | `-1` | `-1` seeds ids from the clock; use `0` when driving by hand so the first id is 1 |
 
+## Nodes in this package
+
+| Executable | What it is |
+|---|---|
+| `brain_node` | the chess logic node (the real thing) |
+| `operator_node` | terminal console: Enter = detect button; `start` / `reset` / `retry`; paste a placement FEN to act as vision; prints the brain's status |
+| `sim_world_node` | stand-in for the human, the camera and the arm, for testing and demos without hardware |
+
 ## Run the tests (any machine, no ROS)
 
 ```bash
@@ -108,15 +121,44 @@ ros2 run chess_brain brain_node --ros-args -p robot_color:=black -p first_action
 They are created as root; to hand them back to your user, run inside the container:
 `chown -R "$(stat -c %u:%g /chessbot)" /chessbot/ros2_ws/{build,install,log}`.
 
+### Watch a whole game with no hardware
+
+`sim_world_node` plays the human (a weak Stockfish), the camera and the arm on the real topics, and checks
+every arm command against the rules the real arm relies on. One command, no Gazebo needed:
+
+```bash
+ros2 launch chess_brain sim_game.launch.py                     # full game, ends by itself
+ros2 launch chess_brain sim_game.launch.py max_plies:=10       # short demo
+ros2 launch chess_brain sim_game.launch.py arm_fail_every:=4   # every 4th arm command fails: shows recovery
+ros2 launch chess_brain sim_game.launch.py robot_color:=white human:=random
+```
+
+At the end it prints the moves, the result, and whether the brain and the simulated referee agree.
+After pulling new code, rebuild first (`colcon build --symlink-install --packages-select chess_brain`).
+
+### Be the vision yourself
+
+With `brain_node` running, in a second shell:
+
+```bash
+source /opt/ros/jazzy/setup.bash && source /chessbot/ros2_ws/install/setup.bash
+ros2 run chess_brain operator_node
+```
+
+Paste a placement FEN (for example from the detector's web demo) and press Enter to publish it as a
+detection; plain Enter presses the detect button; `start`, `reset`, `retry` are sent as commands.
+
 ### Drive one turn by hand
 
 Open a second shell in the same container (from the VM host):
 
 ```bash
 docker exec -it "$(docker ps -q --filter ancestor=ghcr.io/mems-intro-to-robotics/mems-robotics-toolkit:kinova-jazzy-latest | head -n1)" bash
-source /opt/ros/jazzy/setup.bash
+source /opt/ros/jazzy/setup.bash && source /chessbot/ros2_ws/install/setup.bash
 bash /chessbot/ros2_ws/src/chess_brain/scripts/demo_turn.sh
 ```
+
+Every new shell in the container needs those two `source` lines before `ros2 run` / `ros2 launch`.
 
 `demo_turn.sh` publishes the start position, then the position after 1.e4, then `arm_done` for id 1.
 In the node's terminal you should see:

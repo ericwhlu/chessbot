@@ -79,6 +79,23 @@ def canonical_placement(text: str) -> Optional[str]:
         return None
 
 
+def outcome_of(board: chess.Board) -> Optional[chess.Outcome]:
+    """Game result, ending drawn games when the draw has actually occurred.
+
+    python-chess's default ignores threefold repetition and the 50-move rule
+    (it waits for fivefold / 75 moves), while ``claim_draw=True`` ends the game
+    one ply EARLY, as soon as some legal move *could* complete the repetition.
+    Neither suits an unattended robot, so: end on the third actual occurrence
+    of a position, or when the halfmove clock reaches 100.
+    """
+    outcome = board.outcome(claim_draw=False)
+    if outcome is None and board.is_fifty_moves():
+        outcome = chess.Outcome(chess.Termination.FIFTY_MOVES, None)
+    if outcome is None and board.is_repetition(3):
+        outcome = chess.Outcome(chess.Termination.THREEFOLD_REPETITION, None)
+    return outcome
+
+
 @dataclass
 class InferResult:
     """Outcome of matching a detected placement against the legal moves."""
@@ -139,20 +156,8 @@ class GameState:
         return self.board.fen()
 
     def outcome(self) -> Optional[chess.Outcome]:
-        """Game result, ending drawn games when the draw has actually occurred.
-
-        python-chess's default ignores threefold repetition and the 50-move rule
-        (it waits for fivefold / 75 moves), while ``claim_draw=True`` ends the game
-        one ply EARLY, as soon as some legal move *could* complete the repetition.
-        Neither suits an unattended robot, so: end on the third actual occurrence
-        of a position, or when the halfmove clock reaches 100.
-        """
-        outcome = self.board.outcome(claim_draw=False)
-        if outcome is None and self.board.is_fifty_moves():
-            outcome = chess.Outcome(chess.Termination.FIFTY_MOVES, None)
-        if outcome is None and self.board.is_repetition(3):
-            outcome = chess.Outcome(chess.Termination.THREEFOLD_REPETITION, None)
-        return outcome
+        """Game result under the robot's draw policy; see :func:`outcome_of`."""
+        return outcome_of(self.board)
 
     def is_game_over(self) -> bool:
         return self.outcome() is not None

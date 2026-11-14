@@ -23,6 +23,8 @@ setup(
     entry_points={
         "console_scripts": [
             "brain_node = chess_brain.brain_node:main",
+            "sim_world_node = chess_brain.sim_world_node:main",
+            "operator_node = chess_brain.operator_node:main",
             "chess_cli = chess_brain.cli:main",
         ],
     },

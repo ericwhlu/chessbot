@@ -457,6 +457,7 @@ def test_late_failed_after_timeout_becomes_arm_failed_and_resends():
     h.arm(status="failed", reason="planning")
     h.tick()
     assert h.m.state == State.RECOVER and h.status["status"] == "arm_failed"
+    assert h.topic("detect_request")[-1] == "arm_failed"          # now it is safe to look at the board
     h.settle(pre)
     assert h.m.state == State.EXECUTING and [a["id"] for a in h.actions] == [1, 2]
 
@@ -572,6 +573,40 @@ def test_stable_time_zero_accepts_on_the_next_tick():
     h.see(after(chess.STARTING_FEN, "e2e4"))
     h.tick(n=2)
     assert h.m.state == State.EXECUTING
+
+
+def test_detect_requests_are_emitted_when_the_brain_needs_to_see_the_board():
+    h = Harness(replies=["e7e5", "g8f6"], arm_timeout=30.0)
+    h.tick()
+    assert h.topic("detect_request") == ["setup"]                 # new game: show me the board
+    h.settle(START)
+    h.settle(after(chess.STARTING_FEN, "e2e4"))
+    assert h.topic("detect_request") == ["setup"]                 # nothing while thinking / executing
+    h.arm()
+    h.tick()
+    assert h.topic("detect_request")[-1] == "after_robot_move"    # verify the arm's work
+    h.settle(after(chess.STARTING_FEN, "e2e4", "e7e5", "g1f3"))
+    h.arm(status="failed", reason="grasp")
+    h.tick()
+    assert h.topic("detect_request")[-1] == "arm_failed"          # what does the board look like now?
+    h.m.on_cmd("retry")
+    h.tick()
+    assert h.topic("detect_request")[-1] == "retry"
+    n = len(h.topic("detect_request"))
+    h.tick(0.1, n=30)
+    assert len(h.topic("detect_request")) == n                    # one request per event, never repeated
+    h.m.on_cmd("reset")
+    h.tick()
+    assert h.topic("detect_request")[-1] == "setup"
+
+
+def test_no_detect_request_after_an_arm_timeout():
+    h = started(replies=["e7e5"], arm_timeout=30.0)
+    h.settle(after(chess.STARTING_FEN, "e2e4"))
+    n = len(h.topic("detect_request"))
+    h.tick(31.0)
+    assert h.status["status"] == "arm_timeout"
+    assert len(h.topic("detect_request")) == n                    # the arm may still be in the camera's view
 
 
 # ------------------------------------------------------------ engine problems
