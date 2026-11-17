@@ -10,6 +10,8 @@
   <exec_depend>rclpy</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>rcl_interfaces</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <!-- Not ROS packages: python-chess (pip: chess; no apt package or rosdep key on Ubuntu 24.04) and stockfish (apt). See scripts/setup_deps.sh -->

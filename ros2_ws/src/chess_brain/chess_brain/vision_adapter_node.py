@@ -1,0 +1,159 @@
+"""ROS 2 node between the camera and chess_brain: image in, one detector call, placement FEN out.
+
+    ros2 run chess_brain vision_adapter_node --ros-args \\
+        -p detector:=my_pkg.detector:detect -p image_topic:=/camera/image_raw
+
+The vision team plugs in ONE function (see vision_adapter.py for its contract). This node does the rest:
+
+* subscribes to the camera (``sensor_msgs/Image`` on ``image_topic``) and keeps the latest frame;
+* on every message on ``chessbot/detect_request`` (the operator's button, or chess_brain asking
+  after the robot's move) it runs the detector once on the latest frame and publishes the result
+  on ``chessbot/detected_fen``;
+* with ``period`` > 0 it also detects continuously, every ``period`` seconds;
+* publishes nothing if there is no fresh image or the detector cannot read the board
+  (chess_brain then simply keeps waiting), and says why in the log;
+* runs the detector in a worker thread, so a slow detector never blocks ROS.
+"""
+
+from __future__ import annotations
+
+import queue
+import time
+from concurrent.futures import ThreadPoolExecutor
+
+import rclpy
+from rcl_interfaces.msg import ParameterDescriptor
+from rclpy.clock import Clock, ClockType
+from rclpy.executors import ExternalShutdownException
+from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
+from sensor_msgs.msg import Image
+from std_msgs.msg import String
+
+from .plugins import load_callable
+from .vision_adapter import image_to_bgr, run_detector
+
+
+class VisionAdapterNode(Node):
+    def __init__(self):
+        super().__init__("vision_adapter")
+
+        def declare_number(name, default):
+            self.declare_parameter(name, default, ParameterDescriptor(dynamic_typing=True))
+
+        self.declare_parameter("detector", "")                        # "package.module:function"
+        self.declare_parameter("image_topic", "chessbot/camera/image")
+        declare_number("period", 0.0)                                 # s; > 0 = continuous detection
+        declare_number("max_image_age", 2.0)                          # s; older frames are not used
+
+        self._period = float(self.get_parameter("period").value)
+        self._max_age = float(self.get_parameter("max_image_age").value)
+        topic = str(self.get_parameter("image_topic").value)
+
+        spec = str(self.get_parameter("detector").value).strip()
+        self._detect = load_callable(spec) if spec else None          # ValueError if it cannot be loaded
+
+        self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="detector")
+        self._image = None              # latest sensor_msgs/Image
+        self._image_at = 0.0            # when it arrived (monotonic)
+        self._request = None            # reason of a pending detection request
+        self._request_at = 0.0          # when it arrived (monotonic)
+        self._running = None            # Future of the detection in progress
+        self._results: "queue.Queue[tuple]" = queue.Queue()
+        self._last_periodic = 0.0
+
+        self._pub_fen = self.create_publisher(String, "chessbot/detected_fen", 10)
+        self.create_subscription(Image, topic, self._on_image, qos_profile_sensor_data)
+        self.create_subscription(String, "chessbot/detect_request", self._on_request, 10)
+        self.create_timer(0.05, self._tick, clock=Clock(clock_type=ClockType.STEADY_TIME))
+
+        mode = f"detector {spec}" if spec else "NO DETECTOR (set -p detector:=package.module:function)"
+        how = f"every {self._period:g}s and on request" if self._period > 0 else "on request"
+        self.get_logger().info(f"vision_adapter ready: {mode}; images from '{topic}'; detecting {how}")
+
+    # ----------------------------------------------------------------- callbacks
+    def _on_image(self, msg: Image) -> None:
+        if self._image is None and self._request is None:
+            # chess_brain's start-up request usually arrives before this node is discovered;
+            # detect once on the first frame so the game can start without a button press.
+            self._request = "first_image"
+        self._image = msg
+        self._image_at = time.monotonic()
+
+    def _on_request(self, msg: String) -> None:
+        self._request = msg.data.strip() or "request"
+        self._request_at = time.monotonic()
+
+    # ---------------------------------------------------------------------- tick
+    def _work(self, msg: Image, reason: str) -> None:
+        """Runs in the worker thread."""
+        try:
+            image = image_to_bgr(msg.height, msg.width, msg.encoding, msg.step, msg.data)
+        except Exception as exc:
+            self._results.put((None, f"cannot use the camera image: {exc}", reason))
+            return
+        placement, why = run_detector(self._detect, image)
+        self._results.put((placement, why, reason))
+
+    def _tick(self) -> None:
+        now = time.monotonic()
+
+        while True:
+            try:
+                placement, why, reason = self._results.get_nowait()
+            except queue.Empty:
+                break
+            if placement is None:
+                self.get_logger().warning(f"no detection published ({reason}): {why}")
+            else:
+                self._pub_fen.publish(String(data=placement))
+                self.get_logger().info(f"detected_fen ({reason}): {placement}")
+
+        if self._running is not None and self._running.done():
+            error = self._running.exception()
+            self._running = None
+            if error is not None:
+                self.get_logger().error(f"detector worker crashed: {error!r}")
+
+        if self._request is None and self._period > 0 and now - self._last_periodic >= self._period:
+            self._request = "periodic"
+        if self._request is None or self._running is not None:
+            return
+        waited = now - self._request_at
+        if self._detect is not None and self._image is not None and self._image_at < self._request_at and waited < self._max_age:
+            return  # prefer a frame taken AFTER the request (the arm may still have been in view before)
+
+        reason, self._request = self._request, None
+        self._last_periodic = now
+        if self._detect is None:
+            self.get_logger().warning(f"detection requested ({reason}) but no detector is configured")
+        elif self._image is None:
+            self.get_logger().warning(f"detection requested ({reason}) but no camera image has arrived yet")
+        elif now - self._image_at > self._max_age:
+            age = now - self._image_at
+            self.get_logger().warning(f"detection requested ({reason}) but the last camera image is {age:.1f}s old")
+        else:
+            self._running = self._pool.submit(self._work, self._image, reason)
+
+    # ------------------------------------------------------------------ shutdown
+    def shutdown(self) -> None:
+        self._pool.shutdown(wait=False, cancel_futures=True)
+
+
+def main(args=None) -> None:
+    rclpy.init(args=args)
+    node = None
+    try:
+        node = VisionAdapterNode()
+        rclpy.spin(node)
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
+    finally:
+        if node is not None:
+            node.shutdown()
+            node.destroy_node()
+        rclpy.try_shutdown()
+
+
+if __name__ == "__main__":
+    main()

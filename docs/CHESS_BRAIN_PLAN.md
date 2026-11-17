@@ -2,7 +2,7 @@
 
 Owner: David Zeng · Role: chess rules, Stockfish integration, game-state tracking, robot move selection
 Repo: `ericwhlu/chessbot` · Stack: ROS 2 Jazzy + Gazebo Harmonic, Kinova arm, Docker image `mems-robotics-toolkit:kinova-jazzy-latest`
-Status: **v0.4 — 2026-11-14**. v0.2 was revised after three plan reviews (§11); v0.3 records what changed while implementing the node (§12); v0.4 adds the simulator and operator tools (§13).
+Status: **v0.5 — 2026-11-17**. v0.2 was revised after three plan reviews (§11); v0.3 records what changed while implementing the node (§12); v0.4 adds the simulator and operator tools (§13); v0.5 adds the vision and arm adapters (§14).
 
 ---
 
@@ -333,3 +333,16 @@ Neither the detector nor the arm pipeline is in the repository yet, so Objective
 | 5 | `outcome_of(board)` shared by the brain and the simulator | One draw policy in one place |
 
 Still open for Objective 3: the detector as a ROS 2 node on a Gazebo camera topic, honouring `detect_request`.
+
+## 14. Adapters: plug-in points for the detector and the arm (v0.5, 2026-11-17)
+
+Still no vision or arm code in the repository. To make integration a matter of supplying one function each, the glue on both sides is now written and tested:
+
+| # | Addition | What a teammate has to supply |
+|---|---|---|
+| 1 | `vision_adapter_node` (+ `vision_adapter.py`): subscribes to the camera (`sensor_msgs/Image`), answers every `detect_request` by running the detector once on the latest frame, publishes `detected_fen`; optional continuous mode; never blocks ROS (worker thread); publishes nothing when there is no fresh image or the board is unreadable | `detect(image_bgr) -> placement FEN or None`, named by `-p detector:=package.module:function` |
+| 2 | `arm_adapter_node` (+ `arm_adapter.py`): subscribes to `arm_actions`, validates the whole command before any motion, resolves squares / `DISCARD` / `SPARE_Q_*` to world coordinates, calls the executor once per action, replies on `arm_done` with `failed_action_index` and a reason on failure; a newer command replaces one that has not started; repeated ids are ignored | `pick_and_place(pick_xyz, place_xyz, info)`, named by `-p executor:=package.module:function`. Without it the node runs dry (logs coordinates, waits, reports ok) |
+| 3 | `board_frame.py`: square → metres per `docs/board_setup.md`, board pose in the world (`board_x`, `board_y`, `board_yaw_deg`), discard slots and spare-queen positions in the board frame | the measured board pose |
+| 4 | `robot.launch.py`: brain + both adapters | - |
+
+Verified so far: unit tests for the geometry, command execution and image conversion; all three nodes run together through an in-process stand-in for rclpy with two plug-in functions acting on a shared fake table (60 plies, the brain's own `detect_request` after each robot move answered by the vision adapter). Not yet verified: the adapters on real ROS 2, a real camera topic, a real arm.

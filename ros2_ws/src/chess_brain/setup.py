@@ -25,6 +25,8 @@ setup(
             "brain_node = chess_brain.brain_node:main",
             "sim_world_node = chess_brain.sim_world_node:main",
             "operator_node = chess_brain.operator_node:main",
+            "vision_adapter_node = chess_brain.vision_adapter_node:main",
+            "arm_adapter_node = chess_brain.arm_adapter_node:main",
             "chess_cli = chess_brain.cli:main",
         ],
     },

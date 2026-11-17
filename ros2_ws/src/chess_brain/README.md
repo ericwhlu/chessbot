@@ -21,7 +21,8 @@ Design notes: `docs/CHESS_BRAIN_PLAN.md` at the repo root.
 - [x] built and hand-driven inside the course container (`docs/evidence/`)
 - [x] `sim_world_node.py` — simulated human + camera + arm: plays a whole game with no hardware
 - [x] `operator_node.py` — the detect button and operator commands, from a terminal
-- [ ] connected to the real detector / the real arm
+- [x] `vision_adapter_node.py` / `arm_adapter_node.py` — plug-in points for the real detector and the real arm
+- [ ] a real detector and a real pick-and-place plugged in
 
 ## Interface contract
 
@@ -91,6 +92,122 @@ All topics are `std_msgs/String`.
 | `brain_node` | the chess logic node (the real thing) |
 | `operator_node` | terminal console: Enter = detect button; `start` / `reset` / `retry`; paste a placement FEN to act as vision; prints the brain's status |
 | `sim_world_node` | stand-in for the human, the camera and the arm, for testing and demos without hardware |
+| `vision_adapter_node` | camera image → your `detect()` function → `/chessbot/detected_fen` |
+| `arm_adapter_node` | `/chessbot/arm_actions` → your `pick_and_place()` function → `/chessbot/arm_done` |
+
+## Plugging in the real detector and the real arm
+
+The two adapter nodes already speak chess_brain's topics. Each team writes **one Python function**;
+nothing in chess_brain has to change.
+
+### Vision: one function
+
+```python
+def detect(image_bgr):
+    """image_bgr: numpy array (height, width, 3), uint8, BGR (OpenCV style).
+    Return the piece-placement FEN, rank 8 first, a1 bottom-left, e.g.
+    "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR".
+    Return None (or raise) if the board cannot be read."""
+```
+
+```bash
+ros2 run chess_brain vision_adapter_node --ros-args \
+    -p detector:=your_package.your_module:detect -p image_topic:=/your/camera/image
+```
+
+The node keeps the latest camera frame, runs `detect` once for every message on
+`/chessbot/detect_request` (the operator's button, or chess_brain asking after the robot's move) and
+publishes the answer. `-p period:=1.0` adds continuous detection. Images may be `bgr8`, `rgb8`,
+`bgra8`, `rgba8` or `mono8` (a Gazebo RGB camera bridged to ROS arrives as `rgb8`).
+
+The FEN must be in board coordinates whatever the camera orientation: if the camera looks from
+black's side, rotate before returning.
+
+### Arm: one function
+
+```python
+def pick_and_place(pick_xyz, place_xyz, info):
+    """Move the piece standing at pick_xyz to place_xyz and return when it is there.
+    pick_xyz, place_xyz: (x, y, z) in metres, world frame; z is the board surface.
+    info: {"id", "move", "index", "count", "last", "pick", "place"}. When info["last"] is
+    True, finish by parking the arm out of the camera's view.
+    Return None/True on success; return False or a reason string, or raise, on failure."""
+```
+
+```bash
+ros2 run chess_brain arm_adapter_node --ros-args \
+    -p executor:=your_package.your_module:pick_and_place \
+    -p board_x:=0.30 -p board_y:=-0.20 -p board_yaw_deg:=0.0
+```
+
+The node converts square names to coordinates (`docs/board_setup.md`: 50 mm squares, origin at the a1
+corner), hands out discard slots for captured pieces (a column beside the a-file, `discard_x` /
+`discard_y` in the board frame), calls your function once per action, and answers on
+`/chessbot/arm_done`. "World" is whatever frame `board_x`, `board_y`, `board_yaw_deg` and `surface_z`
+were measured in, normally the arm's planning frame. The z it passes is the board surface; the grasp
+height above it is yours to add.
+
+`pick_and_place` runs inside `arm_adapter_node`'s process, in a worker thread (not a ROS callback), so
+it may block for as long as the motion takes. If it uses ROS itself:
+
+1. never call `rclpy.init()` or `rclpy.shutdown()` (the adapter already did);
+2. create your own node once and your own executor, and wait only with that executor, never with
+   `rclpy.spin_until_future_complete(node, ...)` or `rclpy.spin_once(node)`;
+3. use the `_async` calls, never the blocking `client.call()` or `action_client.send_goal()`;
+4. always wait with a timeout, and return a reason string when it expires.
+
+```python
+import rclpy
+from rclpy.action import ActionClient
+from rclpy.executors import SingleThreadedExecutor
+
+_node = _exec = _client = None
+
+def _ros():
+    global _node, _exec, _client
+    if _node is None:                                    # first call
+        _node = rclpy.create_node("chess_arm_motion", use_global_arguments=False)
+        _exec = SingleThreadedExecutor()
+        _exec.add_node(_node)
+        _client = ActionClient(_node, YourAction, "your_action_name")
+
+def _wait(future, seconds):
+    _exec.spin_until_future_complete(future, timeout_sec=seconds)   # OUR executor
+    if not future.done():
+        raise TimeoutError(f"no answer within {seconds:g} s")
+    return future.result()
+
+def pick_and_place(pick_xyz, place_xyz, info):
+    _ros()
+    if not _client.wait_for_server(timeout_sec=5.0):
+        return "action server not available"
+    handle = _wait(_client.send_goal_async(goal), 10.0)  # build `goal` from pick_xyz / place_xyz
+    if not handle.accepted:
+        return "goal rejected"
+    _wait(handle.get_result_async(), 60.0)
+    return None                                           # or a reason string on failure
+```
+
+Without `executor` the adapter runs dry: it logs every pick and place with its coordinates, waits,
+and reports success. That is enough to drive chess_brain today:
+
+```bash
+ros2 launch chess_brain robot.launch.py          # brain + vision adapter + arm adapter (dry run)
+ros2 run chess_brain operator_node               # second shell: paste placement FENs as the "camera"
+```
+
+As the "camera", wait for `[brain] wait_human` before pasting the next position, and read the robot's
+move from `[brain] executing - <move>` to know what the board looks like afterwards.
+
+`your_package` must be importable by the node's interpreter (`/usr/bin/python3`, not the
+`/opt/ros_python` virtualenv), together with everything it imports (OpenCV, etc.). Build it too
+(`colcon build --symlink-install --packages-select chess_brain your_package`), re-source
+`install/setup.bash` in every shell, and check with `/usr/bin/python3 -c "import your_package.your_module"`.
+A single file works as well:
+`PYTHONPATH=/dir/of/file:$PYTHONPATH ros2 launch chess_brain robot.launch.py detector:=my_file:detect`.
+
+Do not run `arm_adapter_node` and `sim_world_node` together: both answer `arm_actions`. If you restart
+chess_brain, restart `arm_adapter_node` too (it ignores command ids it has already seen).
 
 ## Run the tests (any machine, no ROS)
 
