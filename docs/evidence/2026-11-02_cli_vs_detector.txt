@@ -1,0 +1,30 @@
+Date: Mon 2026-11-02 18:14–18:21 (America/New_York)
+Test: chess_brain CLI driven by REAL detector output from Atharva's Chessmate demo site
+      (https://chessmate-duke-robotics.onrender.com/). Human = white (David, on the site),
+      robot = black (Stockfish 19 via chess_brain). Each FEN below was produced by the site's
+      "Detect Board" and pasted verbatim.
+
+Result: one full turn end-to-end —
+  1. human move inferred correctly from the detected placement (e2e4)
+  2. robot reply selected by Stockfish (b8c6, Nc6)
+  3. after making the robot's move on the site, the next detection matched the expected
+     placement exactly ("verified ✔") — this is the node's post-move verification.
+  FEN orientation confirmed: a1 bottom-left, white on ranks 1–2, no rotation issue.
+
+$ python -m chess_brain.cli
+engine: Stockfish 19
+robot plays black. Commands: fen | legal | undo | quit
+white to move (HUMAN)
+expected placement: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR
+paste detected FEN after YOUR move > rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR
+inferred human move: e2e4  (e4)
+black to move (ROBOT)
+expected placement: rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR
+
+ROBOT plays: b8c6  (Nc6)
+make that move on the site, Detect Board, then paste the FEN to verify.
+expected placement: r1bqkbnr/pppppppp/2n5/8/4P3/8/PPPP1PPP/RNBQKBNR
+paste detected FEN after ROBOT move > r1bqkbnr/pppppppp/2n5/8/4P3/8/PPPP1PPP/RNBQKBNR
+verified ✔ board matches
+white to move (HUMAN)
+expected placement: r1bqkbnr/pppppppp/2n5/8/4P3/8/PPPP1PPP/RNBQKBNR

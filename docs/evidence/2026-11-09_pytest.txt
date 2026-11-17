@@ -1,0 +1,26 @@
+Date: Mon 2026-11-09 23:07 (America/New_York)
+Machine: David's MacBook Pro, project venv (python-chess 1.11.2, pytest 9.2.0), Stockfish 19
+Package: ros2_ws/src/chess_brain — no ROS required for these tests
+
+$ pytest -q
+........................................................................ [ 33%]
+........................................................................ [ 66%]
+........................................................................ [ 99%]
+..                                                                       [100%]
+218 passed in 13.59s
+
+New since 2026-11-03 (162 tests then):
+- machine.py state machine: 40+ scenarios — setup, a full turn (human move -> engine -> arm ok ->
+  verification), captures, detections ignored while thinking/executing, stale detections, illegal and
+  transient positions, arm failed / timeout / late reply, retry never sent onto a half-executed move,
+  stale arm_done ids, board changed while thinking, reset, robot plays white, engine errors,
+  promotions excluded from the search, draw only on the third actual repetition.
+- 12 simulated games with vision and the arm in the loop: random human moves, the published
+  arm actions executed on a model of the physical board, and the resulting placement fed back.
+- engine wrapper: searchmoves restriction, game snapshots, machine driven with the engine in a
+  worker thread (the node's wiring).
+
+Not covered by this run: brain_node.py against real ROS 2 (to be built and hand-driven in the
+course container; see ros2_ws/src/chess_brain/README.md).
+
+Commit: feature/chess-brain, rebased onto main (72e12f8) and pushed.
