@@ -1,0 +1,41 @@
+Date: Tue 2026-11-17 15:35-15:42 (America/New_York)
+Machine: course VM vcm-54426 (zz472), course Docker image (kinova-jazzy-latest), ROS 2 Jazzy
+Branch:  main @ f0048ec
+Test:    ros2 launch chess_brain sim_game.launch.py
+         A complete game on real ROS 2: brain_node (robot, black, Stockfish 16 skill 5) against
+         sim_world_node (simulated human = Stockfish 16 skill 0, simulated camera and arm).
+
+Result: PASS. The robot played a whole game unassisted and won by checkmate.
+  98 plies, 12 captures, 0-1 (checkmate); arm commands 49, failures 0; brain and referee agree.
+  Both processes finished cleanly; the launch shut itself down.
+
+Special cases that occurred in this game and were handled:
+  - 12 captures by either side (robot captures: captured piece to DISCARD first, then the move)
+  - human castling inferred from the placement (14. O-O+, with check)
+  - robot promotion (38... g1=Q): pawn to DISCARD, spare queen placed
+  - many checks given and answered; mate detected (49... Bf6#) and the game ended
+
+Moves:
+1. d4 a6 2. a3 d5 3. g3 Nf6 4. Nf3 g6 5. Bg5 Bg7 6. h4 Ne4 7. c3 c5 8. Nbd2 Nxg5 9. Nxg5 cxd4
+10. e4 dxe3 11. fxe3 h6 12. Nxf7 Kxf7 13. Bc4 dxc4 14. O-O+ Kg8 15. Qc2 Qd6 16. Ne4 Qe5 17. Rf4 Bf5
+18. g4 Bd7 19. Raf1 Be6 20. Rd1 Nc6 21. h5 g5 22. Rff1 Bxg4 23. Rd4 Qe6 24. b4 Bh3 25. Rf3 Nxd4
+26. cxd4 Bf5 27. Nf6+ exf6 28. Qxf5 Qxf5 29. Rf2 Qxf2+ 30. Kxf2 Rc8 31. Ke1 Kf7 32. Kd2 c3+ 33. Kd1 g4
+34. e4 b5 35. Kc1 g3 36. Kc2 g2 37. Kd3 c2 38. Ke2 g1=Q 39. d5 f5 40. Kd3 Qg3+ 41. Ke2 Qg4+ 42. Kf2 Qf4+
+43. Ke1 Qh4+ 44. Kd2 Qf4+ 45. Ke2 Qxe4+ 46. Kf2 Bd4+ 47. Kg3 Rhg8+ 48. Kh3 Qf3+ 49. Kh4 Bf6#
+
+--- end of the terminal output ---------------------------------------------------------------
+[brain_node-1] [INFO] [1794947710.897745411] [chess_brain]: arm_actions: {'id': 756049, 'move': 'd4f6', 'actions': [{'pick': 'd4', 'place': 'f6'}]}
+[brain_node-1] [INFO] [1794947710.898306702] [chess_brain]: status: executing / executing d4f6
+[sim_world_node-2] [INFO] [1794947710.930858400] [sim_world]: arm: moving for d4f6 (1 action(s)) ...
+[sim_world_node-2] [INFO] [1794947711.631180517] [sim_world]: arm: executed d4f6 (id 756049)
+[brain_node-1] [INFO] [1794947711.697421179] [chess_brain]: robot played d4f6
+[brain_node-1] [INFO] [1794947711.698104513] [chess_brain]: status: game_over / game_over 0-1 (checkmate)
+[sim_world_node-2] [INFO] [1794947711.733032246] [sim_world]: === game over: 98 plies, 12 captures, 0-1 (checkmate); arm commands 49, failures 0; brain and referee agree
+[INFO] [sim_world_node-2]: process has finished cleanly [pid 528]
+[INFO] [launch]: process[sim_world_node-2] was required: shutting down launched system
+[INFO] [brain_node-1]: sending signal 'SIGINT' to process[brain_node-1]
+[INFO] [brain_node-1]: process has finished cleanly [pid 527]
+
+What this does and does not show: the chess logic, turn control and arm-action generation are correct
+over a full game on the real topics. It does not show that the camera recognises pieces or that the
+arm can grasp them: both were simulated.

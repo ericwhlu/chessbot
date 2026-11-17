@@ -1,0 +1,128 @@
+Date: Tue 2026-11-17 15:47 (America/New_York)
+Machine: course VM vcm-54426 (zz472), course Docker image (kinova-jazzy-latest), ROS 2 Jazzy
+Branch:  main @ f0048ec
+Test:    ros2 launch chess_brain sim_game.launch.py max_plies:=16 arm_fail_every:=3
+         Recovery path on real ROS 2: every 3rd arm command is answered with "failed, nothing moved".
+
+Result: PASS. 16 plies, 2 captures; arm commands 11, failures 3; brain and referee agree.
+  Each failure (d7d5, g8f6, f6d7) was handled the same way:
+    arm_done failed -> brain state recover / arm_failed, move NOT applied to the game
+    -> brain asks for a detection, sees the pre-move board -> re-sends the move with a NEW id
+       about 0.5 s later -> arm ok -> move applied, play continues.
+  Also in this run: two robot captures sent as (captured square -> DISCARD) then the move
+  (d5e4, e8d8), and human castling (8. O-O) inferred from the placement.
+  Moves: 1. e4 e5 2. Nf3 Nc6 3. d3 d5 4. c3 dxe4 5. dxe4 Nf6 6. Qxd8+ Kxd8 7. Bd3 Nd7 8. O-O Ke8
+
+--- full terminal output ---------------------------------------------------------------------
+kinova:/chessbot/ros2_ws#  ros2 launch chess_brain sim_game.launch.py max_plies:=16 arm_fail_every:=3
+[INFO] [launch]: All log files can be found below /root/.ros/log/2026-11-17-20-47-09-298063-73e5883082c0-818
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [brain_node-1]: process started with pid [821]
+[INFO] [sim_world_node-2]: process started with pid [822]
+[brain_node-1] [INFO] [1794948429.862444109] [chess_brain]: chess_brain ready: engine=Stockfish 16 (/usr/games/stockfish), robot=black, stable_time=0.5s, allow_promotion=True, first arm_actions id=842901
+[sim_world_node-2] [INFO] [1794948429.883831284] [sim_world]: sim_world ready: human plays white (engine: Stockfish 16), arm takes 0.7s per action, waiting for chess_brain ...
+[brain_node-1] [INFO] [1794948429.949019418] [chess_brain]: status: setup / setup waiting for a stable detection of the start position (or cmd: start)
+[brain_node-1] [INFO] [1794948430.548783587] [chess_brain]: status: wait_human / waiting_human 
+[sim_world_node-2] [INFO] [1794948431.774585475] [sim_world]: human: played e2e4
+[brain_node-1] [INFO] [1794948432.349497643] [chess_brain]: human played e2e4
+[brain_node-1] [INFO] [1794948432.352357749] [chess_brain]: status: thinking / thinking 
+[brain_node-1] [INFO] [1794948432.748732227] [chess_brain]: arm_actions: {'id': 842901, 'move': 'e7e5', 'actions': [{'pick': 'e7', 'place': 'e5'}]}
+[brain_node-1] [INFO] [1794948432.749225715] [chess_brain]: status: executing / executing e7e5
+[sim_world_node-2] [INFO] [1794948432.769551499] [sim_world]: arm: moving for e7e5 (1 action(s)) ...
+[sim_world_node-2] [INFO] [1794948433.469681801] [sim_world]: arm: executed e7e5 (id 842901)
+[brain_node-1] [INFO] [1794948433.548478108] [chess_brain]: robot played e7e5
+[brain_node-1] [INFO] [1794948433.549117673] [chess_brain]: status: wait_human / waiting_human robot move done; waiting for a detection taken after the arm finished
+[brain_node-1] [INFO] [1794948434.148963053] [chess_brain]: status: wait_human / waiting_human 
+[sim_world_node-2] [INFO] [1794948434.673366307] [sim_world]: human: played g1f3
+[brain_node-1] [INFO] [1794948435.249586076] [chess_brain]: human played g1f3
+[brain_node-1] [INFO] [1794948435.251817997] [chess_brain]: status: thinking / thinking 
+[brain_node-1] [INFO] [1794948435.648791821] [chess_brain]: arm_actions: {'id': 842902, 'move': 'b8c6', 'actions': [{'pick': 'b8', 'place': 'c6'}]}
+[brain_node-1] [INFO] [1794948435.649387033] [chess_brain]: status: executing / executing b8c6
+[sim_world_node-2] [INFO] [1794948435.669495630] [sim_world]: arm: moving for b8c6 (1 action(s)) ...
+[sim_world_node-2] [INFO] [1794948436.369782577] [sim_world]: arm: executed b8c6 (id 842902)
+[brain_node-1] [INFO] [1794948436.448493347] [chess_brain]: robot played b8c6
+[brain_node-1] [INFO] [1794948436.449298436] [chess_brain]: status: wait_human / waiting_human robot move done; waiting for a detection taken after the arm finished
+[brain_node-1] [INFO] [1794948437.048827765] [chess_brain]: status: wait_human / waiting_human 
+[sim_world_node-2] [INFO] [1794948437.575338833] [sim_world]: human: played d2d3
+[brain_node-1] [INFO] [1794948438.149695284] [chess_brain]: human played d2d3
+[brain_node-1] [INFO] [1794948438.151674227] [chess_brain]: status: thinking / thinking 
+[brain_node-1] [INFO] [1794948438.548817342] [chess_brain]: arm_actions: {'id': 842903, 'move': 'd7d5', 'actions': [{'pick': 'd7', 'place': 'd5'}]}
+[brain_node-1] [INFO] [1794948438.549451679] [chess_brain]: status: executing / executing d7d5
+[sim_world_node-2] [INFO] [1794948438.569476135] [sim_world]: arm: moving for d7d5 (1 action(s)) ...
+[sim_world_node-2] [WARN] [1794948439.269506571] [sim_world]: arm: FAILED id 842903: simulated arm failure (nothing moved)
+[brain_node-1] [INFO] [1794948439.348648966] [chess_brain]: status: recover / arm_failed simulated arm failure (nothing moved); robot move d7d5 not confirmed. Board must show r1bqkbnr/pppp1ppp/2n5/4p3/4P3/3P1N2/PPP2PPP/RNBQKB1R (before) or r1bqkbnr/ppp2ppp/2n5/3pp3/4P3/3P1N2/PPP2PPP/RNBQKB1R (after).
+[brain_node-1] [INFO] [1794948439.848796906] [chess_brain]: arm_actions: {'id': 842904, 'move': 'd7d5', 'actions': [{'pick': 'd7', 'place': 'd5'}]}
+[brain_node-1] [INFO] [1794948439.849393133] [chess_brain]: status: executing / executing d7d5
+[sim_world_node-2] [INFO] [1794948439.869493635] [sim_world]: arm: moving for d7d5 (1 action(s)) ...
+[sim_world_node-2] [INFO] [1794948440.569754778] [sim_world]: arm: executed d7d5 (id 842904)
+[brain_node-1] [INFO] [1794948440.648598011] [chess_brain]: robot played d7d5
+[brain_node-1] [INFO] [1794948440.649432419] [chess_brain]: status: wait_human / waiting_human robot move done; waiting for a detection taken after the arm finished
+[brain_node-1] [INFO] [1794948441.248885744] [chess_brain]: status: wait_human / waiting_human 
+[sim_world_node-2] [INFO] [1794948441.775456561] [sim_world]: human: played c2c3
+[brain_node-1] [INFO] [1794948442.349993184] [chess_brain]: human played c2c3
+[brain_node-1] [INFO] [1794948442.351946199] [chess_brain]: status: thinking / thinking 
+[brain_node-1] [INFO] [1794948442.748797546] [chess_brain]: arm_actions: {'id': 842905, 'move': 'd5e4', 'actions': [{'pick': 'e4', 'place': 'DISCARD'}, {'pick': 'd5', 'place': 'e4'}]}
+[brain_node-1] [INFO] [1794948442.749435633] [chess_brain]: status: executing / executing d5e4
+[sim_world_node-2] [INFO] [1794948442.769821101] [sim_world]: arm: moving for d5e4 (2 action(s)) ...
+[sim_world_node-2] [INFO] [1794948444.269787260] [sim_world]: arm: executed d5e4 (id 842905)
+[brain_node-1] [INFO] [1794948444.348508348] [chess_brain]: robot played d5e4
+[brain_node-1] [INFO] [1794948444.349308070] [chess_brain]: status: wait_human / waiting_human robot move done; waiting for a detection taken after the arm finished
+[brain_node-1] [INFO] [1794948444.948852072] [chess_brain]: status: wait_human / waiting_human 
+[sim_world_node-2] [INFO] [1794948445.572930191] [sim_world]: human: played d3e4
+[brain_node-1] [INFO] [1794948446.150281556] [chess_brain]: human played d3e4
+[brain_node-1] [INFO] [1794948446.152391347] [chess_brain]: status: thinking / thinking 
+[brain_node-1] [INFO] [1794948446.548745675] [chess_brain]: arm_actions: {'id': 842906, 'move': 'g8f6', 'actions': [{'pick': 'g8', 'place': 'f6'}]}
+[brain_node-1] [INFO] [1794948446.549359602] [chess_brain]: status: executing / executing g8f6
+[sim_world_node-2] [INFO] [1794948446.569754946] [sim_world]: arm: moving for g8f6 (1 action(s)) ...
+[sim_world_node-2] [WARN] [1794948447.269732994] [sim_world]: arm: FAILED id 842906: simulated arm failure (nothing moved)
+[brain_node-1] [INFO] [1794948447.348701908] [chess_brain]: status: recover / arm_failed simulated arm failure (nothing moved); robot move g8f6 not confirmed. Board must show r1bqkbnr/ppp2ppp/2n5/4p3/4P3/2P2N2/PP3PPP/RNBQKB1R (before) or r1bqkb1r/ppp2ppp/2n2n2/4p3/4P3/2P2N2/PP3PPP/RNBQKB1R (after).
+[brain_node-1] [INFO] [1794948447.848760782] [chess_brain]: arm_actions: {'id': 842907, 'move': 'g8f6', 'actions': [{'pick': 'g8', 'place': 'f6'}]}
+[brain_node-1] [INFO] [1794948447.849426376] [chess_brain]: status: executing / executing g8f6
+[sim_world_node-2] [INFO] [1794948447.869641957] [sim_world]: arm: moving for g8f6 (1 action(s)) ...
+[sim_world_node-2] [INFO] [1794948448.669818945] [sim_world]: arm: executed g8f6 (id 842907)
+[brain_node-1] [INFO] [1794948448.748456591] [chess_brain]: robot played g8f6
+[brain_node-1] [INFO] [1794948448.749266930] [chess_brain]: status: wait_human / waiting_human robot move done; waiting for a detection taken after the arm finished
+[brain_node-1] [INFO] [1794948449.348815862] [chess_brain]: status: wait_human / waiting_human 
+[sim_world_node-2] [INFO] [1794948449.975560663] [sim_world]: human: played d1d8
+[brain_node-1] [INFO] [1794948450.551337188] [chess_brain]: human played d1d8
+[brain_node-1] [INFO] [1794948450.553156188] [chess_brain]: status: thinking / thinking 
+[brain_node-1] [INFO] [1794948450.948755495] [chess_brain]: arm_actions: {'id': 842908, 'move': 'e8d8', 'actions': [{'pick': 'd8', 'place': 'DISCARD'}, {'pick': 'e8', 'place': 'd8'}]}
+[brain_node-1] [INFO] [1794948450.949225515] [chess_brain]: status: executing / executing e8d8
+[sim_world_node-2] [INFO] [1794948450.969532530] [sim_world]: arm: moving for e8d8 (2 action(s)) ...
+[sim_world_node-2] [INFO] [1794948452.469720750] [sim_world]: arm: executed e8d8 (id 842908)
+[brain_node-1] [INFO] [1794948452.548449789] [chess_brain]: robot played e8d8
+[brain_node-1] [INFO] [1794948452.549133317] [chess_brain]: status: wait_human / waiting_human robot move done; waiting for a detection taken after the arm finished
+[brain_node-1] [INFO] [1794948453.148854436] [chess_brain]: status: wait_human / waiting_human 
+[sim_world_node-2] [INFO] [1794948453.674874471] [sim_world]: human: played f1d3
+[brain_node-1] [INFO] [1794948454.249678190] [chess_brain]: human played f1d3
+[brain_node-1] [INFO] [1794948454.251771622] [chess_brain]: status: thinking / thinking 
+[brain_node-1] [INFO] [1794948454.648791948] [chess_brain]: arm_actions: {'id': 842909, 'move': 'f6d7', 'actions': [{'pick': 'f6', 'place': 'd7'}]}
+[brain_node-1] [INFO] [1794948454.649361307] [chess_brain]: status: executing / executing f6d7
+[sim_world_node-2] [INFO] [1794948454.669722629] [sim_world]: arm: moving for f6d7 (1 action(s)) ...
+[sim_world_node-2] [WARN] [1794948455.469518552] [sim_world]: arm: FAILED id 842909: simulated arm failure (nothing moved)
+[brain_node-1] [INFO] [1794948455.548658650] [chess_brain]: status: recover / arm_failed simulated arm failure (nothing moved); robot move f6d7 not confirmed. Board must show r1bk1b1r/ppp2ppp/2n2n2/4p3/4P3/2PB1N2/PP3PPP/RNB1K2R (before) or r1bk1b1r/pppn1ppp/2n5/4p3/4P3/2PB1N2/PP3PPP/RNB1K2R (after).
+[brain_node-1] [INFO] [1794948456.048822860] [chess_brain]: arm_actions: {'id': 842910, 'move': 'f6d7', 'actions': [{'pick': 'f6', 'place': 'd7'}]}
+[brain_node-1] [INFO] [1794948456.049429323] [chess_brain]: status: executing / executing f6d7
+[sim_world_node-2] [INFO] [1794948456.069530924] [sim_world]: arm: moving for f6d7 (1 action(s)) ...
+[sim_world_node-2] [INFO] [1794948456.769695994] [sim_world]: arm: executed f6d7 (id 842910)
+[brain_node-1] [INFO] [1794948456.848561646] [chess_brain]: robot played f6d7
+[brain_node-1] [INFO] [1794948456.849302597] [chess_brain]: status: wait_human / waiting_human robot move done; waiting for a detection taken after the arm finished
+[brain_node-1] [INFO] [1794948457.448761715] [chess_brain]: status: wait_human / waiting_human 
+[sim_world_node-2] [INFO] [1794948457.973455736] [sim_world]: human: played e1g1
+[brain_node-1] [INFO] [1794948458.550336272] [chess_brain]: human played e1g1
+[brain_node-1] [INFO] [1794948458.552396930] [chess_brain]: status: thinking / thinking 
+[brain_node-1] [INFO] [1794948458.948720904] [chess_brain]: arm_actions: {'id': 842911, 'move': 'd8e8', 'actions': [{'pick': 'd8', 'place': 'e8'}]}
+[brain_node-1] [INFO] [1794948458.949275701] [chess_brain]: status: executing / executing d8e8
+[sim_world_node-2] [INFO] [1794948458.969715740] [sim_world]: arm: moving for d8e8 (1 action(s)) ...
+[sim_world_node-2] [INFO] [1794948459.769675788] [sim_world]: arm: executed d8e8 (id 842911)
+[brain_node-1] [INFO] [1794948459.848481753] [chess_brain]: robot played d8e8
+[brain_node-1] [INFO] [1794948459.849341309] [chess_brain]: status: wait_human / waiting_human robot move done; waiting for a detection taken after the arm finished
+[sim_world_node-2] [INFO] [1794948459.870087302] [sim_world]: === demo limit reached: 16 plies, 2 captures, in progress; arm commands 11, failures 3; brain and referee agree
+[sim_world_node-2] [INFO] [1794948459.870607337] [sim_world]: === moves: 1. e4 e5 2. Nf3 Nc6 3. d3 d5 4. c3 dxe4 5. dxe4 Nf6 6. Qxd8+ Kxd8 7. Bd3 Nd7 8. O-O Ke8
+[INFO] [sim_world_node-2]: process has finished cleanly [pid 822]
+[INFO] [launch]: process[sim_world_node-2] was required: shutting down launched system
+[INFO] [brain_node-1]: sending signal 'SIGINT' to process[brain_node-1]
+[INFO] [brain_node-1]: process has finished cleanly [pid 821]
+[INFO] [launch]: process[brain_node-1] was required: shutting down launched system
+kinova:/chessbot/ros2_ws# 
+
