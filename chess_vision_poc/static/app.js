@@ -1,7 +1,10 @@
 const $ = id => document.getElementById(id);
 let state, frame, selected=null, result=null, recommendation=null, busy=false;
 const canvas=$('board'),ctx=canvas.getContext('2d');
-async function api(path,data){const response=await fetch('/api/'+path,{method:data?'POST':'GET',headers:{'Content-Type':'application/json'},body:data?JSON.stringify(data):undefined});const value=await response.json();if(!response.ok)throw Error(value.error||response.statusText);return value;}
+// Each document owns a board. Keeping the key in memory makes reload start a new game.
+const boardKey = Array.from(crypto.getRandomValues(new Uint8Array(16)),
+    byte => byte.toString(16).padStart(2, '0')).join('');
+async function api(path,data){const response=await fetch('/api/'+path,{method:data?'POST':'GET',headers:{'Content-Type':'application/json','X-Chessmate-Board':boardKey},body:data?JSON.stringify(data):undefined});const value=await response.json();if(!response.ok)throw Error(value.error||response.statusText);return value;}
 function toast(message,error=false){$('toast').textContent=message;$('toast').classList.toggle('error',error);$('toast').style.display='block';clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').style.display='none',6500);}
 async function task(fn){if(busy)return;busy=true;document.querySelectorAll('button,input,select').forEach(b=>b.disabled=true);try{await fn();}catch(e){toast(e.message,true);}finally{busy=false;document.querySelectorAll('button,input,select').forEach(b=>b.disabled=false);}}
 function scene(){return {tilt:+$('tilt').value,rotation:+$('rotation').value,light:+$('light').value,noise:+$('noise').value,palette:$('palette').value,shadows:$('shadows').checked};}

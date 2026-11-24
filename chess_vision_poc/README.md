@@ -36,7 +36,7 @@ python -m chess_vision.train  # optional if models/templates.npz is present
 python -m chess_vision.app --open
 ```
 
-Use `--port 8766` if another application occupies the default port. The development server binds only to loopback. Each visitor gets an independent board and private capture history using a signed, HTTP-only session cookie. Tabs in the same browser profile share that visitor's board. State is held in memory and resets on server restart or after two hours of inactivity; up to 256 recent visitor sessions are retained. Cloud deployment instructions are in [DEPLOYMENT.md](DEPLOYMENT.md).
+Use `--port 8766` if another application occupies the default port. The development server binds only to loopback. Each page load starts an independent game with private captures. Refreshing restores the opening position with White to move, and other tabs keep their own games. State is held in memory and resets on server restart or after two hours of inactivity; up to 256 recent visitor sessions are retained. Cloud deployment instructions are in [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## Try the complete workflow
 

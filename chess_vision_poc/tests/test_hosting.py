@@ -17,9 +17,23 @@ def test_visitors_have_independent_boards_and_private_frames():
     result=alice.post('/api/detect',json=payload).get_json()
     assert result['evaluation']['correct']==64
     assert result['matrix'][4][4]=='P'
-    # Refresh in the same browser retains its game via signed cookie.
+    # API clients without a page key keep their own cookie-backed board.
     assert alice.get('/api/state').get_json()['turn']=='black'
     assert bob.get('/api/state').get_json()['turn']=='white'
+
+
+def test_new_page_gets_opening_board_while_original_page_keeps_its_game():
+    client = create_app().test_client()
+    first = {'X-Chessmate-Board': 'a' * 32}
+    second = {'X-Chessmate-Board': 'b' * 32}
+    opening = client.post('/api/frame', json={}, headers=first).get_json()['state']
+    move = {'action': {'action': 'move', 'from': 'e2', 'to': 'e4'}, 'scene': {}}
+    moved = client.post('/api/action-frame', json=move, headers=first).get_json()
+    assert moved['state']['turn'] == 'black'
+    assert client.post('/api/frame', json={}, headers=second).get_json()['state'] == opening
+    assert client.get('/api/state', headers=first).get_json()['matrix'][4][4] == 'P'
+    payload = {k: moved[k] for k in ('image', 'calibration', 'frame_id')}
+    assert client.post('/api/detect', json=payload, headers=second).status_code == 400
 
 
 @pytest.mark.parametrize('payload',[[],{'rotation':float('nan')},{'size':768.5},{'seed':-1},{'shadows':'true'}])

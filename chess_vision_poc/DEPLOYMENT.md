@@ -41,7 +41,7 @@ The container can generate an ephemeral signing key for local testing. Render su
 
 ## Session behavior and capacity
 
-Each browser receives a signed HTTP-only cookie identifying its own board and frame history. No account is needed. Different friends do not share a board. This is an independent tinkering demo, not multiplayer chess.
+Each page load generates a random board key held in page memory. Refreshing or opening a new tab starts a fresh board and capture history. API clients that omit the board key use a signed HTTP-only session cookie. No account is needed. Different friends do not share a board. This is an independent tinkering demo, not multiplayer chess.
 
 Sessions are intentionally ephemeral: restart/redeploy, an idle service shutdown, two hours of inactivity, or eviction beyond the 256-session limit can reset a board. A free hosted service may sleep when idle; a later visit may take time to start. No database or paid persistence is configured.
 

@@ -56,10 +56,18 @@ def create_app():
             for key in list(visitors):
                 if now-visitors[key].last_seen>7200:
                     del visitors[key]
-            sid=session.get('visitor_id')
-            if not isinstance(sid,str) or sid not in visitors:
-                sid=secrets.token_urlsafe(32)
-                session['visitor_id']=sid
+            board_key = request.headers.get('X-Chessmate-Board')
+            if board_key is None:
+                # API clients without a page key use their signed session cookie.
+                sid = session.get('visitor_id')
+                if not isinstance(sid, str):
+                    sid = secrets.token_urlsafe(32)
+                    session['visitor_id'] = sid
+            else:
+                if len(board_key) != 32 or any(c not in '0123456789abcdef' for c in board_key):
+                    raise ValueError('Invalid board key')
+                sid = ('page', board_key)
+            if sid not in visitors:
                 visitors[sid]=Visitor()
                 while len(visitors)>256:
                     visitors.popitem(last=False)
