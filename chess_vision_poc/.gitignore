@@ -8,4 +8,5 @@ __pycache__/
 !.env.example
 bin/
 dist/
+models/render_layers_fusion_v1.npz
 models/render_layers.npz

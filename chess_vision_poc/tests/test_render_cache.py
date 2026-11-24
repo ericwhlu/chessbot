@@ -7,11 +7,11 @@ from chess_vision import render as renderer
 from chess_vision.game import matrix_of
 
 
-# Captured from the original full-scene rasterizer before the optimization.
+# Reference frames for the Fusion base profiles with the runtime rasterizer.
 @pytest.mark.parametrize('settings,digest',[
-    ({},'3caa2a810b525b445d451f221dc9ddcb4e26ce23235e08cbd5374431c35f5a74'),
-    ({'tilt':30},'aa4ad1807e0c213ec682a93cb5f05e379f3f24dc55cb914fe3797d7a2d30be9f'),
-    ({'tilt':60,'azimuth':137,'rotation':23},'ca9bd22e0bd104a151a39c607fb57cd6af61a3d3188d9a88f8043d35e87c0319'),
+    ({},'a68207087c9be9a4fc57af20ed1dfa8272fcf9760768705a9e10f9dd9fe400c5'),
+    ({'tilt':30},'0db9e9c7419e59ba952f96ba0b9ff09a13c740a42aa9866423ed74163c7e567d'),
+    ({'tilt':60,'azimuth':137,'rotation':23},'b94edb4be327af0ad74b2d045e89c7bc3d419e3d85277554184539ff548cf3f4'),
 ])
 def test_original_pixels_preserved(settings,digest):
     pixels,_=renderer.render(matrix_of(chess.Board()),renderer.Scene(**settings))

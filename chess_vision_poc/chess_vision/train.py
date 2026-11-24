@@ -31,7 +31,7 @@ def train():
     MODEL.parent.mkdir(exist_ok=True)
     np.savez_compressed(MODEL,features=np.array(features,np.float32),labels=np.array(labels))
     (MODEL.parent/'training.json').write_text(json.dumps({'method':'nearest synthetic silhouette template / soft IoU',
-        'templates':len(labels),'tilts':[0,12,24,36],'rotations':list(range(0,360,15)),
+        'base_geometry':'Fusion STEP footprints, 50 mm squares (v1)', 'templates':len(labels),'tilts':[0,12,24,36],'rotations':list(range(0,360,15)),
         'seed':'deterministic','material_segmentation':'gray > 179 white, gray < 78 black',
         'note':'Includes complete projected geometry; confidence is not a probability.'},indent=2)+'\n')
     print(f'Saved {len(labels)} templates to {MODEL}',flush=True)

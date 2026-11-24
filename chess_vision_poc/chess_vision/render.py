@@ -135,7 +135,7 @@ def _make_piece_layer(symbol,row,col,tilt,azimuth,rotation,light,size):
 
 # The default overhead layers are generated during the image build, not on a
 # visitor's first request. They contain RGB/depth only; detection still sees PNGs.
-LAYER_FILE=Path(__file__).resolve().parents[1]/'models/render_layers.npz'
+LAYER_FILE=Path(__file__).resolve().parents[1]/'models/render_layers_fusion_v1.npz'
 
 
 @lru_cache(maxsize=1)

@@ -1,5 +1,6 @@
 {
   "method": "nearest synthetic silhouette template / soft IoU",
+  "base_geometry": "Fusion STEP footprints, 50 mm squares (v1)",
   "templates": 1728,
   "tilts": [
     0,

@@ -6,7 +6,7 @@ No labels, fiducials, or piece-specific changes to the gripping cube.
 from functools import lru_cache
 import numpy as np
 
-BASE_HEIGHT = 0.095
+BASE_HEIGHT = 5 / 50
 CUBE_WIDTH = 0.30
 CUBE_BOTTOM = BASE_HEIGHT
 CUBE_TOP = BASE_HEIGHT + CUBE_WIDTH
@@ -49,22 +49,23 @@ def sphere(radius, center, rings=8, segments=16):
 
 
 def base_outline(kind):
+    """Fusion STEP outer contours, centered on the grip, in 50 mm squares."""
     if kind == 'P':
-        return polygon(48, .405)
+        return polygon(48, 15 / 50)
     if kind == 'R':
-        return polygon(4, .48, np.pi/4)
+        return np.array([[-15,-15],[15,-15],[15,15],[-15,15]]) / 50
     if kind == 'N':
-        return polygon(3, .47, -np.pi/2)
+        return polygon(3, 25 / 50, np.pi / 2)
     if kind == 'B':
-        return polygon(6, .425, np.pi/6)
+        return polygon(5, 15 / (50 * np.cos(np.pi / 5)), np.pi / 2)
     if kind == 'Q':
-        a = np.arange(10)*np.pi/5 - np.pi/2
-        return np.column_stack((np.cos(a), np.sin(a))) * np.where(np.arange(10)%2 == 0, .47, .245)[:,None]
+        points = polygon(10, 1, np.pi / 2)
+        radii = np.tile([25, 10 / np.cos(np.pi / 5)], 5)
+        return points * radii[:, None] / 50
     if kind == 'K':
-        # Eight flat-ended teeth, four vertices per tooth.
-        a = np.arange(32)*2*np.pi/32
-        radii = np.tile([.35,.46,.46,.35], 8)
-        return np.column_stack((np.cos(a), np.sin(a))) * radii[:,None]
+        return np.array([[-10,-20],[10,-20],[10,-10],[20,-10],[20,10],
+                         [10,10],[10,20],[-10,20],[-10,10],[-20,10],
+                         [-20,-10],[-10,-10]]) / 50
     raise ValueError(kind)
 
 

@@ -2,9 +2,9 @@
 
 A runnable perception demo for the Duke chess robotics project. It renders solid three-section pieces, captures the displayed RGB pixels, reconstructs the board independently, and passes the detected position to Stockfish. No ROS, Gazebo, external AI API, or robot movement is involved.
 
-![Local application](artifacts/browser_initial.png)
+![Starting board with Fusion bases](artifacts/initial.png)
 
-## Live website
+## Previously deployed demo
 
 **[Open Chessmate](https://chessmate-duke-robotics.onrender.com)** — hosted on Render. Friends can use it with your Mac turned off; each browser receives an independent board. The free service can take 50 seconds or more to wake after inactivity, and board state is ephemeral.
 
@@ -52,6 +52,8 @@ Free edits clear castling rights, en passant rights, and move history. Set the s
 
 ## Physical geometry
 
+The base outlines and plate height use Eric’s [Fusion STEP measurements](../models/chessbot/meshes) on a 50 mm square. The grip and upper pieces use the demo geometry. The Fusion [top-view renders](../models/chessbot/renders) are held out of fitting. The regression check segments their silhouettes, scales them to the CAD widths, and tests all six in both synthetic piece colors.
+
 Every piece consists of actual filled 3D surfaces, with depth-buffered visibility. The model has no identification text, printed marks, or decals.
 
 | Piece | Solid bottom base | Upper geometry |
@@ -59,11 +61,11 @@ Every piece consists of actual filled 3D surfaces, with depth-buffered visibilit
 | Pawn | Circle | Tapered neck and sphere |
 | Rook | Square | Square turret with four raised crenellations |
 | Knight | Triangle | Extruded asymmetric horse profile, muzzle, and ear |
-| Bishop | Hexagon | Tapered body and pointed mitre |
+| Bishop | Pentagon | Tapered body and pointed mitre |
 | Queen | Five-point star | Flared crown and five crown tips |
-| King | Eight-tooth gear | Crown, stem, and cross |
+| King | Plus sign | Crown, stem, and cross |
 
-The middle cube is exactly **0.30 × 0.30 × 0.30** for all types and both colors. A square width is 1.0; the base height is 0.095, and the cube spans z = 0.095 to 0.395. White pieces use warm ivory material and black pieces use blue-black material. Bases extend beyond the upper geometry where practical. Overhead images include the visible projection of every section; oblique images include occlusion and the displacement of elevated geometry.
+The middle cube is exactly **0.30 × 0.30 × 0.30** for all types and both colors. A square width is 1.0; the base height is 0.10, and the cube spans z = 0.10 to 0.40. White pieces use warm ivory material and black pieces use blue-black material. Bases extend beyond the upper geometry where practical. Overhead images include the visible projection of every section; oblique images include occlusion and the displacement of elevated geometry.
 
 The renderer is a small CPU 3D rasterizer in `render.py`, using an orthographic camera, a depth buffer, directional diffuse shading, and approximate soft ground shadows. Ground shadows use displaced base footprints, not a full physical shadow map. The illumination slider scales piece-material illumination; the board retains fixed palette colors. Geometry is polygonal, especially the small crown tips. This is a synthetic imaging prototype, not a manufacturing CAD model or a physically based renderer. The geometry has not been checked for print tolerances, gripper clearance, stability, or manufacturability.
 
@@ -121,7 +123,7 @@ The original perception delivery passed **11 tests**. Hosting adds tests for vis
 | 18° and 30° oblique views; rotated camera | 64/64 each |
 | Piece illumination 0.9× and 1.1×; alternate palettes; shadows off | 64/64 each |
 | Noise σ = 4 and σ = 12; combined moderate perturbations | 64/64 each |
-| **60° tilt with 19° piece rotation** | **47/64** |
+| **60° tilt with 19° piece rotation** | **43/64** |
 | **0.75× piece illumination** | **48/64** |
 
 The steep-view failures include neighboring-square contamination and confusion between occluded silhouettes. The dim-light failure misses white pieces because they leave the configured material segmentation range. Both are visible in the saved artifacts. These are measured examples, not a guarantee over every position or angle. Scores include empty squares; the report also lists every incorrect square.

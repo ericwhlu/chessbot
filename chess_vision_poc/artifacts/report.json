@@ -22,7 +22,7 @@
       "expected_fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR",
       "detected_fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR",
       "warnings": [],
-      "elapsed_ms": 27
+      "elapsed_ms": 26
     },
     {
       "name": "after_e2e4",
@@ -68,7 +68,7 @@
       "expected_fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR",
       "detected_fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR",
       "warnings": [],
-      "elapsed_ms": 27
+      "elapsed_ms": 26
     },
     {
       "name": "after_g1f3",
@@ -91,7 +91,7 @@
       "expected_fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R",
       "detected_fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R",
       "warnings": [],
-      "elapsed_ms": 27
+      "elapsed_ms": 26
     },
     {
       "name": "after_b8c6",
@@ -160,7 +160,7 @@
       "expected_fen": "8/8/8/8/8/8/8/8",
       "detected_fen": "8/8/8/8/8/8/8/8",
       "warnings": [],
-      "elapsed_ms": 7
+      "elapsed_ms": 8
     },
     {
       "name": "all_types_both_colors_and_tiles",
@@ -183,7 +183,7 @@
       "expected_fen": "8/8/8/bbrrqqkk/8/QQKKppnn/8/PPNNBBRR",
       "detected_fen": "8/8/8/bbrrqqkk/8/QQKKppnn/8/PPNNBBRR",
       "warnings": [],
-      "elapsed_ms": 23
+      "elapsed_ms": 22
     },
     {
       "name": "arbitrary_0",
@@ -205,12 +205,8 @@
       "errors": [],
       "expected_fen": "3P1Q2/2r3pP/B1pb2rQ/1N1nNNkK/1RQ1RK2/1k1B1pr1/1KBKKR2/q1nk4",
       "detected_fen": "3P1Q2/2r3pP/B1pb2rQ/1N1nNNkK/1RQ1RK2/1k1B1pr1/1KBKKR2/q1nk4",
-      "warnings": [
-        "g5: weak template match or ambiguous silhouette",
-        "b2: weak template match or ambiguous silhouette",
-        "d2: weak template match or ambiguous silhouette"
-      ],
-      "elapsed_ms": 346
+      "warnings": [],
+      "elapsed_ms": 330
     },
     {
       "name": "arbitrary_1",
@@ -233,7 +229,7 @@
       "expected_fen": "PK6/K1qpKQ2/1RpQP3/n1rK3Q/1nb2P2/q1QprQ1p/2Q2KQp/2Nb1Q1q",
       "detected_fen": "PK6/K1qpKQ2/1RpQP3/n1rK3Q/1nb2P2/q1QprQ1p/2Q2KQp/2Nb1Q1q",
       "warnings": [],
-      "elapsed_ms": 453
+      "elapsed_ms": 430
     },
     {
       "name": "arbitrary_2",
@@ -256,7 +252,7 @@
       "expected_fen": "3b4/P1K1k1Qk/BR1q2N1/B2pKqn1/2QP1B2/1n1NrNpn/1N1NRN2/N1nb3r",
       "detected_fen": "3b4/P1K1k1Qk/BR1q2N1/B2pKqn1/2QP1B2/1n1NrNpn/1N1NRN2/N1nb3r",
       "warnings": [],
-      "elapsed_ms": 302
+      "elapsed_ms": 291
     },
     {
       "name": "castling",
@@ -325,7 +321,7 @@
       "expected_fen": "N3k3/8/8/8/8/8/8/4K3",
       "detected_fen": "N3k3/8/8/8/8/8/8/4K3",
       "warnings": [],
-      "elapsed_ms": 9
+      "elapsed_ms": 10
     },
     {
       "name": "rotation_23",
@@ -348,7 +344,7 @@
       "expected_fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R",
       "detected_fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R",
       "warnings": [],
-      "elapsed_ms": 387
+      "elapsed_ms": 425
     },
     {
       "name": "rotation_137",
@@ -371,7 +367,7 @@
       "expected_fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R",
       "detected_fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R",
       "warnings": [],
-      "elapsed_ms": 426
+      "elapsed_ms": 425
     },
     {
       "name": "oblique_18",
@@ -394,7 +390,7 @@
       "expected_fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R",
       "detected_fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R",
       "warnings": [],
-      "elapsed_ms": 455
+      "elapsed_ms": 449
     },
     {
       "name": "oblique_30",
@@ -416,11 +412,8 @@
       "errors": [],
       "expected_fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R",
       "detected_fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R",
-      "warnings": [
-        "c8: weak template match or ambiguous silhouette",
-        "f8: weak template match or ambiguous silhouette"
-      ],
-      "elapsed_ms": 479
+      "warnings": [],
+      "elapsed_ms": 470
     },
     {
       "name": "camera_azimuth",
@@ -443,7 +436,7 @@
       "expected_fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R",
       "detected_fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R",
       "warnings": [],
-      "elapsed_ms": 498
+      "elapsed_ms": 486
     },
     {
       "name": "light_dim",
@@ -466,7 +459,7 @@
       "expected_fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R",
       "detected_fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R",
       "warnings": [],
-      "elapsed_ms": 432
+      "elapsed_ms": 423
     },
     {
       "name": "light_bright",
@@ -489,7 +482,7 @@
       "expected_fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R",
       "detected_fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R",
       "warnings": [],
-      "elapsed_ms": 434
+      "elapsed_ms": 424
     },
     {
       "name": "palette_slate",
@@ -512,7 +505,7 @@
       "expected_fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R",
       "detected_fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R",
       "warnings": [],
-      "elapsed_ms": 65
+      "elapsed_ms": 46
     },
     {
       "name": "palette_clay",
@@ -535,7 +528,7 @@
       "expected_fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R",
       "detected_fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R",
       "warnings": [],
-      "elapsed_ms": 45
+      "elapsed_ms": 46
     },
     {
       "name": "noise_4",
@@ -558,7 +551,7 @@
       "expected_fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R",
       "detected_fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R",
       "warnings": [],
-      "elapsed_ms": 51
+      "elapsed_ms": 53
     },
     {
       "name": "no_shadows",
@@ -581,7 +574,7 @@
       "expected_fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R",
       "detected_fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R",
       "warnings": [],
-      "elapsed_ms": 22
+      "elapsed_ms": 21
     },
     {
       "name": "combined",
@@ -604,11 +597,18 @@
       "expected_fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R",
       "detected_fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R",
       "warnings": [
+        "e4: weak template match or ambiguous silhouette",
         "f3: weak template match or ambiguous silhouette",
-        "b1: weak template match or ambiguous silhouette",
-        "e1: weak template match or ambiguous silhouette"
+        "a2: weak template match or ambiguous silhouette",
+        "b2: weak template match or ambiguous silhouette",
+        "c2: weak template match or ambiguous silhouette",
+        "d2: weak template match or ambiguous silhouette",
+        "f2: weak template match or ambiguous silhouette",
+        "g2: weak template match or ambiguous silhouette",
+        "h2: weak template match or ambiguous silhouette",
+        "b1: weak template match or ambiguous silhouette"
       ],
-      "elapsed_ms": 517
+      "elapsed_ms": 509
     },
     {
       "name": "stress_60_degrees",
@@ -624,103 +624,130 @@
         "seed": 42,
         "size": 768
       },
-      "correct": 47,
+      "correct": 43,
       "total": 64,
-      "accuracy": 0.734375,
+      "accuracy": 0.671875,
       "errors": [
         {
           "square": "b8",
           "expected": ".",
-          "predicted": "n"
+          "predicted": "r"
         },
         {
           "square": "c8",
           "expected": "b",
-          "predicted": "p"
-        },
-        {
-          "square": "d8",
-          "expected": "q",
           "predicted": "r"
         },
         {
           "square": "f8",
           "expected": "b",
-          "predicted": "p"
+          "predicted": "r"
         },
         {
-          "square": "g8",
-          "expected": "n",
+          "square": "a7",
+          "expected": "p",
+          "predicted": "r"
+        },
+        {
+          "square": "c7",
+          "expected": "p",
           "predicted": "r"
         },
         {
           "square": "e6",
           "expected": ".",
-          "predicted": "n"
+          "predicted": "r"
+        },
+        {
+          "square": "e5",
+          "expected": "p",
+          "predicted": "r"
         },
         {
           "square": "f4",
           "expected": ".",
-          "predicted": "N"
+          "predicted": "R"
         },
         {
           "square": "a3",
           "expected": ".",
-          "predicted": "N"
+          "predicted": "R"
         },
         {
           "square": "b3",
           "expected": ".",
-          "predicted": "N"
+          "predicted": "R"
         },
         {
           "square": "c3",
           "expected": ".",
-          "predicted": "N"
+          "predicted": "R"
         },
         {
           "square": "d3",
           "expected": ".",
-          "predicted": "N"
-        },
-        {
-          "square": "f3",
-          "expected": "N",
           "predicted": "R"
         },
         {
           "square": "g3",
           "expected": ".",
-          "predicted": "N"
+          "predicted": "R"
         },
         {
           "square": "h3",
           "expected": ".",
-          "predicted": "N"
+          "predicted": "R"
+        },
+        {
+          "square": "a2",
+          "expected": "P",
+          "predicted": "R"
+        },
+        {
+          "square": "b2",
+          "expected": "P",
+          "predicted": "R"
+        },
+        {
+          "square": "c2",
+          "expected": "P",
+          "predicted": "R"
+        },
+        {
+          "square": "d2",
+          "expected": "P",
+          "predicted": "R"
         },
         {
           "square": "e2",
           "expected": ".",
-          "predicted": "N"
-        },
-        {
-          "square": "c1",
-          "expected": "B",
           "predicted": "P"
         },
         {
-          "square": "f1",
-          "expected": "B",
-          "predicted": "P"
+          "square": "f2",
+          "expected": "P",
+          "predicted": "R"
+        },
+        {
+          "square": "h2",
+          "expected": "P",
+          "predicted": "R"
         }
       ],
       "expected_fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R",
-      "detected_fen": "rnprkprr/pppp1ppp/2n1n3/4p3/4PN2/NNNN1RNN/PPPPNPPP/RNPQKP1R",
+      "detected_fen": "rrrqkrnr/rprp1ppp/2n1r3/4r3/4PR2/RRRR1NRR/RRRRPRPR/RNBQKB1R",
       "warnings": [
         "b8: weak template match or ambiguous silhouette",
-        "h8: weak template match or ambiguous silhouette",
+        "c8: weak template match or ambiguous silhouette",
+        "d8: weak template match or ambiguous silhouette",
+        "f8: weak template match or ambiguous silhouette",
+        "a7: weak template match or ambiguous silhouette",
+        "c7: weak template match or ambiguous silhouette",
+        "d7: weak template match or ambiguous silhouette",
+        "g7: weak template match or ambiguous silhouette",
         "e6: weak template match or ambiguous silhouette",
         "e5: weak template match or ambiguous silhouette",
+        "e4: weak template match or ambiguous silhouette",
         "f4: weak template match or ambiguous silhouette",
         "a3: weak template match or ambiguous silhouette",
         "b3: weak template match or ambiguous silhouette",
@@ -728,11 +755,18 @@
         "d3: weak template match or ambiguous silhouette",
         "g3: weak template match or ambiguous silhouette",
         "h3: weak template match or ambiguous silhouette",
+        "a2: weak template match or ambiguous silhouette",
+        "b2: weak template match or ambiguous silhouette",
+        "c2: weak template match or ambiguous silhouette",
+        "d2: weak template match or ambiguous silhouette",
         "e2: weak template match or ambiguous silhouette",
+        "f2: weak template match or ambiguous silhouette",
+        "g2: weak template match or ambiguous silhouette",
+        "h2: weak template match or ambiguous silhouette",
         "c1: weak template match or ambiguous silhouette",
         "f1: weak template match or ambiguous silhouette"
       ],
-      "elapsed_ms": 491
+      "elapsed_ms": 479
     },
     {
       "name": "stress_dim_075",
@@ -836,7 +870,7 @@
       "expected_fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R",
       "detected_fen": "r1bqkbnr/pppp1ppp/2n5/4p3/8/8/8/8",
       "warnings": [],
-      "elapsed_ms": 426
+      "elapsed_ms": 413
     },
     {
       "name": "stress_noise_12",
@@ -862,7 +896,7 @@
       "elapsed_ms": 51
     }
   ],
-  "total_correct": 1823,
+  "total_correct": 1819,
   "total_squares": 1856,
   "baseline_passed": true
 }
