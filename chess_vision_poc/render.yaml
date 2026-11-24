@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: chessmate-duke-robotics
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    envVars:
+      - key: CHESSMATE_SECRET_KEY
+        generateValue: true
+      - key: CHESSMATE_HTTPS
+        value: "1"

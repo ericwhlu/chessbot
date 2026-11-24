@@ -1,0 +1,51 @@
+{
+  "url": "https://chessmate-duke-robotics.onrender.com",
+  "passed": true,
+  "timings": [
+    {
+      "path": "/healthz",
+      "seconds": 0.229
+    },
+    {
+      "path": "/api/frame",
+      "seconds": 0.768,
+      "server_render_ms": 208.3
+    },
+    {
+      "path": "/api/action-frame",
+      "seconds": 0.4,
+      "server_render_ms": 163.4
+    },
+    {
+      "path": "/api/detect",
+      "seconds": 0.721
+    },
+    {
+      "path": "/api/action-frame",
+      "seconds": 0.386,
+      "server_render_ms": 159.7
+    },
+    {
+      "path": "/api/detect",
+      "seconds": 0.626
+    },
+    {
+      "path": "/api/action-frame",
+      "seconds": 0.38,
+      "server_render_ms": 146.8
+    },
+    {
+      "path": "/api/detect",
+      "seconds": 1.075
+    },
+    {
+      "path": "/api/action-frame",
+      "seconds": 0.419,
+      "server_render_ms": 193.0
+    },
+    {
+      "path": "/api/detect",
+      "seconds": 0.772
+    }
+  ]
+}

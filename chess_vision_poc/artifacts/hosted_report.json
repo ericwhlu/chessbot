@@ -1,0 +1,20 @@
+{
+  "url": "https://chessmate-duke-robotics.onrender.com",
+  "passed": true,
+  "checks": [
+    "public health endpoint",
+    "starting position pixels: 64/64",
+    "independent visitor boards",
+    "e2e4 pixels: 64/64 and real Stockfish response",
+    "cross-visitor frame refused",
+    "empty board pixels: 64/64"
+  ],
+  "elapsed_seconds": 6.49,
+  "engine_result": {
+    "from": "c7",
+    "input_fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+    "san": "c5",
+    "to": "c5",
+    "uci": "c7c5"
+  }
+}

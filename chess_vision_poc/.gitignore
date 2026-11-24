@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+bin/
+dist/
+models/render_layers.npz

@@ -1,0 +1,14 @@
+{
+  "provider": "Render",
+  "repository": "https://github.com/Jog-sama/chessmate",
+  "private_repository": true,
+  "service_id": "srv-dbgivs6c6qcc739cclig",
+  "blueprint_id": "exs-dbgivmon74is73dr0340",
+  "deploy_id": "dep-dbgj720ae00c73bn0nvg",
+  "commit": "10479d9e0dbcc7387a09fee348478ab0b329db2b",
+  "url": "https://chessmate-duke-robotics.onrender.com",
+  "status": "live",
+  "verified": true,
+  "verification": "artifacts/hosted_report.json",
+  "performance_verification": "artifacts/performance_after.json"
+}

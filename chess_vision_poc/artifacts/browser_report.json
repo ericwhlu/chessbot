@@ -1,0 +1,21 @@
+{
+  "passed": true,
+  "browser": "Chrome headless, real canvas PNG capture",
+  "checks": [
+    "initial recognition",
+    "four legal click moves",
+    "Auto Detect",
+    "real Stockfish suggestion",
+    "30 degree camera",
+    "empty board",
+    "edit add both colors",
+    "edit free move",
+    "edit remove",
+    "FEN load",
+    "underpromotion",
+    "mobile layout without horizontal overflow",
+    "no JavaScript errors"
+  ],
+  "engine_result": "f1b5\nNotation: Bb5 \u00b7 From f1 \u2192 b5",
+  "javascript_errors": []
+}

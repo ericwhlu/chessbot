@@ -1,0 +1,32 @@
+[
+  {
+    "path": "/healthz",
+    "seconds": 0.394,
+    "bytes": 34
+  },
+  {
+    "path": "/api/frame",
+    "seconds": 16.335,
+    "bytes": 113617
+  },
+  {
+    "path": "/api/action",
+    "seconds": 0.235,
+    "bytes": 591
+  },
+  {
+    "path": "/api/frame",
+    "seconds": 16.758,
+    "bytes": 114695
+  },
+  {
+    "path": "/api/action",
+    "seconds": 0.427,
+    "bytes": 656
+  },
+  {
+    "path": "/api/frame",
+    "seconds": 17.528,
+    "bytes": 115324
+  }
+]

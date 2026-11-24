@@ -1,0 +1,13 @@
+**
+!Dockerfile
+!requirements.txt
+!requirements-hosting.txt
+!gunicorn.conf.py
+!chess_vision/
+!chess_vision/**
+!static/
+!static/**
+!models/
+!models/**
+**/__pycache__/
+**/*.pyc

@@ -100,3 +100,17 @@ Verify the model files exist inside Docker:
 ls -R /chessbot
 
 Check that both chessboard.sdf and chessboard_v1.stl are present.
+
+
+## Chessmate perception demo
+
+The standalone Chessmate browser demo is in [chess_vision_poc](chess_vision_poc/README.md). It includes custom 3D pieces, pixel-based recognition, interactive play/edit modes, and optional Stockfish suggestions.
+
+Run locally with Python 3.12:
+
+```bash
+cd chess_vision_poc
+./run.sh
+```
+
+Open http://127.0.0.1:8765. See the app README for setup, tests, and perception limitations. This demo runs independently of the ROS 2/Gazebo simulation.
