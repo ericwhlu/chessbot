@@ -100,3 +100,9 @@ Verify the model files exist inside Docker:
 ls -R /chessbot
 
 Check that both chessboard.sdf and chessboard_v1.stl are present.
+
+## Physical board printing
+
+See [board setup and printer calibration](docs/board_setup.md#printing).
+The original PDF is for true 100% printing. A printer-specific V2 compensation
+PDF is also available; print its test page before assembling the board.

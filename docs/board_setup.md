@@ -49,3 +49,25 @@ The board-only SDF passed Gazebo format validation.
 The checkerboard was visually inspected in Gazebo.
 PDF page dimensions and layout were checked digitally.
 Physical print dimensions and robot reachability remain to be verified.
+
+## Printer calibration update (2026-11-24)
+
+The original PDF contains exact 50 x 50 mm squares and remains the standard
+version for Actual size / 100% printing. The board geometry has not changed.
+
+A physical print measured 45.5 mm per square. A first compensation enlarged
+artwork by 50/45.5, but the next print measured 51 mm. The new
+[printer compensation V2](Chessbot_Printer_Compensated_V2.pdf) reduces that
+first compensation by 50/51 (98.0392%). Its PDF square size is approximately
+53.8677 mm; it targets 50 mm only with the same printer, paper and settings
+used for the 51 mm measurement. It is not a universal replacement for the
+original PDF.
+
+- Print page 1 first and measure both sides of the test square.
+- Keep the previous print settings; do not apply additional enlargement.
+- Once both sides measure 50 mm, print pages 2-7, single-sided A4 portrait.
+- Assemble top row T1/T2/T3 and bottom row B1/B2/B3, overlapping matching patterns.
+- Verify 50 mm squares and a 400 x 400 mm playing area before camera calibration.
+
+V2 physical dimensions still need confirmation. Use the original PDF when
+printing at true 100% scale.
