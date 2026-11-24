@@ -1,0 +1,9 @@
+{
+  "tag_family": "36h11",
+  "tags": [
+    {"id": 0, "center_xy_m": [0.030, 0.460], "size_m": 0.040, "rotation_deg": 0},
+    {"id": 1, "center_xy_m": [0.370, 0.460], "size_m": 0.040, "rotation_deg": 0},
+    {"id": 2, "center_xy_m": [0.370, -0.060], "size_m": 0.040, "rotation_deg": 0},
+    {"id": 3, "center_xy_m": [0.030, -0.060], "size_m": 0.040, "rotation_deg": 0}
+  ]
+}
