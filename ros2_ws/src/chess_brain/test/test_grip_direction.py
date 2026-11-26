@@ -221,12 +221,14 @@ def test_en_passant_castling_and_promotion_get_a_direction_for_every_action():
 
 
 @pytest.mark.parametrize("bad", ["e2", {"e2": 1}, ["e2", "z9"], [3]])
-def test_a_malformed_occupied_list_rejects_the_command(bad):
-    seen, executor = recorder()
+def test_a_malformed_occupied_list_is_a_hint_that_cannot_be_used(bad):
     payload = {"id": 4, "move": "e7e5", "actions": [{"pick": "e7", "place": "e5"}], "occupied": bad}
-    reply = run_command(payload, Locations(), executor)
-    assert reply["status"] == "failed" and reply["failed_action_index"] == -1 and "occupied" in reply["reason"]
-    assert seen == []
+    with pytest.raises(ValueError, match="occupied"):
+        plan_grips(payload, Locations())
+    # ... but it does not stop the game: the move is made with the arm's own orientation
+    seen, executor = recorder()
+    assert run_command(payload, Locations(), executor)["status"] == "ok"
+    assert len(seen) == 1 and "pick_grip" not in seen[0]
 
 
 def test_off_board_locations_have_board_frame_positions():
@@ -298,3 +300,71 @@ def test_reach_does_not_depend_on_the_grip_direction(x, y, z, reachable):
     for direction in (0.0, 45.0, 90.0, 135.0):
         either = any(K.top_down_solutions(x, y, z, yaw) for yaw in K.grip_yaws(math.radians(direction)))
         assert either is reachable
+
+
+# ------------------------------------------------------------------- which of the two yaws
+TRAVEL_Z = -0.056 + 0.157 + 0.150
+GRIP_Z = -0.056 + 0.157 + 0.020
+
+
+def _feasible(x, y, z, yaw, joints):
+    return K.nearest_solution((x, y, z), K.top_down_rotation(yaw), joints) is not None
+
+
+def test_going_straight_down_keeps_the_yaw_the_arm_has():
+    for degrees in (0.0, 45.0, 90.0, 135.0):
+        grip = math.radians(degrees)
+        for yaw in K.grip_yaws(grip):
+            above = K.top_down_solutions(0.35, 0.10, TRAVEL_Z, yaw)
+            assert above
+            ranked = K.rank_yaws(0.35, 0.10, GRIP_Z, grip, above[0])
+            assert ranked[0] == pytest.approx(yaw)
+
+
+def test_the_first_yaw_is_one_the_arm_can_turn_to_from_where_it_is():
+    """Moves between squares for boards turned different ways: whenever one of the two yaws can
+    be reached without leaving the arm's configuration, that one is ranked first. The smaller
+    turn of the tool is not always that one (the last joint has limits)."""
+    import random
+
+    rng = random.Random(11)
+    checked = differs_from_smaller_turn = 0
+    for _ in range(40):
+        board_yaw = rng.choice([0.0, math.pi / 2, -math.pi / 2, math.pi])
+        ax, ay = rng.uniform(0.20, 0.47), rng.uniform(-0.17, 0.17)
+        bx, by = rng.uniform(0.20, 0.47), rng.uniform(-0.17, 0.17)
+        grip_a = board_yaw + math.radians(rng.choice([0.0, 45.0, 90.0, 135.0]))
+        grip_b = grip_a + rng.choice([0.0, math.pi / 2])
+        yaw_a = K.grip_yaws(grip_a)[rng.randrange(2)]
+        start = K.top_down_solutions(ax, ay, TRAVEL_Z, yaw_a)
+        if not start:
+            continue
+        joints = start[rng.randrange(len(start))]
+        ranked = K.rank_yaws(bx, by, TRAVEL_Z, grip_b, joints, GRIP_Z, yaw_a)
+        assert sorted(ranked) == sorted(K.grip_yaws(grip_b))
+        can = [_feasible(bx, by, TRAVEL_Z, yaw, joints) for yaw in ranked]
+        if any(can):
+            checked += 1
+            assert can[0], "a yaw the arm cannot turn to was ranked first although the other one is fine"
+            smaller = min(ranked, key=lambda yaw: abs(math.atan2(math.sin(yaw - yaw_a), math.cos(yaw - yaw_a))))
+            differs_from_smaller_turn += ranked[0] != smaller
+    assert checked > 20
+    assert differs_from_smaller_turn > 0     # the rule matters: "the smaller turn" would be wrong here
+
+
+def test_without_joint_angles_the_yaw_nearer_to_the_last_one_comes_first():
+    grip = math.radians(90.0)                      # yaws 0 and 180 degrees
+    assert K.rank_yaws(0.35, 0.0, TRAVEL_Z, grip, None, None, 0.1)[0] == pytest.approx(0.0)
+    assert abs(K.rank_yaws(0.35, 0.0, TRAVEL_Z, grip, None, None, 3.0)[0]) == pytest.approx(math.pi)
+
+
+def test_a_yaw_with_no_solution_goes_last():
+    # near the wrist's limit only one yaw of the pair has joint angles (see the reach test above)
+    x, y, z = 0.497, 0.175, 0.121
+    for degrees in (0.0, 45.0, 90.0, 135.0):
+        grip = math.radians(degrees)
+        has = {yaw: bool(K.top_down_solutions(x, y, z, yaw)) for yaw in K.grip_yaws(grip)}
+        if sum(has.values()) == 1:
+            assert has[K.rank_yaws(x, y, z, grip)[0]]
+            return
+    pytest.fail("expected a direction for which only one yaw is reachable at this point")

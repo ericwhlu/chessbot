@@ -25,8 +25,10 @@ Design notes: `docs/CHESS_BRAIN_PLAN.md` at the repo root.
 - [x] `kinova_executor.py` / `kinova_arm.py` — pick-and-place for the course's Kinova Gen3 Lite through MoveIt (unit-tested with a fake arm; run in Gazebo with blocks standing in for pieces; **not yet on the real arm**)
 - [x] `reach_check` — asks MoveIt which squares the arm can reach for a given board position
 - [x] the Kinova executor run in Gazebo: single move, capture, missed grasp (`docs/evidence/2026-11-26_gazebo_executor_moves.txt`)
+- [x] `grip_direction.py` — the gripper turns to stay clear of the other pieces (run with MoveIt on mock hardware)
+- [x] occupancy on the robot side: `vision_adapter_node` can publish the occupied squares, `arm_adapter_node` can look at the board before it moves
 - [ ] the Kinova executor on the real arm, and with real pieces
-- [ ] a real detector plugged in
+- [ ] a real detector plugged in (the wrapper around the simulation's perception, `chessbot_sim_ros.camera_detector`, has only seen rendered frames)
 
 ## Interface contract
 
@@ -133,6 +135,23 @@ publishes the answer. `-p period:=1.0` adds continuous detection. Images may be 
 The FEN must be in board coordinates whatever the camera orientation: if the camera looks from
 black's side, rotate before returning.
 
+**A detector that cannot tell the pieces apart** returns the occupied squares instead, and the node
+is started with `-p output:=occupancy` (it then publishes on `/chessbot/detected_occupancy`):
+
+```python
+def detect(image_bgr):
+    """Return the squares that hold a piece, e.g. ["a1", "b1", "e4"], or None."""
+```
+
+Either kind of detector may take a second parameter, `camera`: the intrinsic matrix `k`, the
+distortion `d`, `width`, `height` and `frame_id` from the `sensor_msgs/CameraInfo` topic named by
+`-p camera_info_topic:=...`, plus `config`, the JSON object in `-p detector_config:='{...}'`.
+`chessbot_sim_ros.camera_detector:detect` is such a detector: the AprilTag + YOLO perception of
+`chessbot_sim/`, unchanged (see that package's README for what it needs and what was checked).
+
+A detection whose picture is older than a request that is still waiting is not published; the
+request gets the next one.
+
 ### Arm: one function
 
 ```python
@@ -219,6 +238,24 @@ A single file works as well:
 
 Do not run `arm_adapter_node` and `sim_world_node` together: both answer `arm_actions`. If you restart
 chess_brain, restart `arm_adapter_node` too (it ignores command ids it has already seen).
+
+### With a vision that only reports occupied squares: look before moving
+
+From the occupied squares alone, the board after a capture looks the same whether or not the
+captured piece was really taken away: the square is occupied either way. So with
+`-p check_squares:=occupancy` the arm adapter asks the camera itself (`/chessbot/detect_request`,
+then the next `/chessbot/detected_occupancy`):
+
+- before the first action of a command: the pick square must hold a piece, the place square must be empty;
+- again before an action that puts a piece where an earlier action of the same command took one
+  away (the second half of a capture). The arm parks first, so that it is not in the picture.
+
+If the camera disagrees, or gives no picture within `check_timeout` (15 s), the action does not start
+and the command fails with the reason; chess_brain then waits for the operator as after any arm
+failure. `robot.launch.py` turns the check on by itself when `observation:=occupancy` and a detector
+is set (`check_squares:=off` to overrule). The parked arm must not hide the board from the camera:
+at the WORK pose the gripper hangs over the ranks nearest the arm in the board placements used so
+far, so an overhead camera needs `park:=retract` or another parking pose.
 
 ## Running on the course's Kinova Gen3 Lite
 
@@ -348,6 +385,27 @@ To be measured on the real arm before a game: `open_position` (the open fingers 
 neighbouring pieces), `grip_height`, `gripper_length` with the fingers at `open_position`, and the
 finger reading with each piece type in the gripper (it must lie between `open_position` and
 `missed_reading`).
+
+### Without Gazebo: MoveIt on mock hardware
+
+`ros2 launch chess_brain mock_gen3_lite.launch.py` starts the Gen3 Lite with ros2_control mock
+hardware and MoveIt: the joints follow their commands exactly, there is no physics and nothing to
+grip (a finger always ends where it was told to go, so use `grasp_check:=false`). `reach_check` and
+the executor run against it as against Gazebo, without `use_sim_time`. `docker/jazzy-moveit/Dockerfile`
+builds an image for it on Apple Silicon, where the course image does not run:
+
+```bash
+docker build -f docker/jazzy-sim/Dockerfile -t chessbot-jazzy-sim ros2_ws/src
+docker build -t chessbot-jazzy-moveit docker/jazzy-moveit
+docker run --rm -it -v "$PWD":/chessbot chessbot-jazzy-moveit
+# inside: colcon build ..., source install/setup.bash, then in three shells:
+#   ros2 launch chess_brain mock_gen3_lite.launch.py
+#   ros2 run chess_brain reach_check --ros-args -p board_x:=0.572 -p board_y:=-0.20 -p board_yaw_deg:=90 -p surface_z:=-0.056
+#   ros2 launch chess_brain robot.launch.py executor:=chess_brain.kinova_executor:pick_and_place grasp_check:=false board_x:=...
+```
+
+That image has pymoveit2 5.1 and the released kortex packages; the course image builds both from
+source (pymoveit2 4.0). The reach map it gives for the 400 mm board is the same as in Gazebo.
 
 ## Run the tests (any machine, no ROS)
 

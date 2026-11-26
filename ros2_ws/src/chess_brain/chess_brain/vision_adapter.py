@@ -1,5 +1,6 @@
-"""Turn a camera image into a placement FEN by calling one detector function. Pure Python
-(numpy is only needed when an image is actually converted).
+"""Turn a camera image into what chess_brain reads, by calling one detector function: a placement
+FEN, or just the occupied squares. Pure Python (numpy is only needed when an image is actually
+converted).
 
 This is the vision team's plug-in point. The detector is the ONE function they write:
 
@@ -14,15 +15,33 @@ This is the vision team's plug-in point. The detector is the ONE function they w
         as "cannot read". A full FEN is accepted too; only the placement field is used.
         '''
 
+A detector that cannot tell the pieces apart returns the occupied squares instead (the node is then
+started with ``output:=occupancy`` and publishes on ``chessbot/detected_occupancy``):
+
+    def detect(image_bgr):
+        '''Return the names of the squares that hold a piece, e.g. ["a1", "b1", "e4"], in any
+        order, or None if the board cannot be read.'''
+
+Either kind of detector may take a second parameter, the camera:
+
+    def detect(image_bgr, camera):
+        '''camera : {"k": 3x3 intrinsic matrix (rows), "d": distortion coefficients,
+                     "width", "height", "frame_id", "config": dict}, from the
+                     sensor_msgs/CameraInfo topic given to the node; "config" is the node's
+                     ``detector_config`` parameter (JSON) for the detector's own settings.
+                     None if no camera info has arrived.'''
+
 Everything else (subscribing to the camera, the detect button, publishing) is done by
 vision_adapter_node.py.
 """
 
 from __future__ import annotations
 
-from typing import Callable, Optional, Tuple
+import inspect
+from typing import Callable, List, Optional, Tuple
 
 from .game import canonical_placement
+from .occupancy import normalise
 
 Detector = Callable[[object], Optional[str]]
 
@@ -68,10 +87,56 @@ def image_to_bgr(height: int, width: int, encoding: str, step: int, data):
     return pixels[:, :, list(_COLOR_ENCODINGS[enc][1])].copy()
 
 
-def run_detector(detector: Detector, image) -> Tuple[Optional[str], str]:
+def wants_camera(detector) -> bool:
+    """Does the detector take a second positional parameter (the camera)?"""
+    try:
+        parameters = list(inspect.signature(detector).parameters.values())
+    except (TypeError, ValueError):
+        return False
+    positional = [p for p in parameters if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]
+    return len(positional) >= 2 or any(p.kind is p.VAR_POSITIONAL for p in parameters)
+
+
+def camera_summary(width: int, height: int, k, d, frame_id: str = "", config: Optional[dict] = None) -> dict:
+    """The fields of a ``sensor_msgs/CameraInfo`` a detector needs, as plain Python."""
+    k = [float(v) for v in k]
+    if len(k) != 9:
+        raise ValueError(f"camera matrix has {len(k)} entries, expected 9")
+    return {
+        "k": [k[0:3], k[3:6], k[6:9]],
+        "d": [float(v) for v in d],
+        "width": int(width),
+        "height": int(height),
+        "frame_id": str(frame_id),
+        "config": dict(config or {}),
+    }
+
+
+def _call(detector, image, camera):
+    return detector(image, camera) if wants_camera(detector) else detector(image)
+
+
+def run_occupancy_detector(detector, image, camera: Optional[dict] = None) -> Tuple[Optional[List[str]], str]:
+    """Call a detector that reports occupied squares and validate its answer. Returns
+    ``(sorted square names or None, reason)``."""
+    try:
+        result = _call(detector, image, camera)
+    except Exception as exc:  # the detector failed: report it, never crash the node
+        return None, f"detector raised {type(exc).__name__}: {exc}"
+    if result is None:
+        return None, "detector returned None (board not readable)"
+    if isinstance(result, (str, bytes)) or not hasattr(result, "__iter__"):
+        return None, f"detector returned {str(result)[:60]!r}, not a list of squares (is this a FEN detector? use output:=fen)"
+    squares = normalise(result)
+    if squares is None:
+        return None, f"detector returned something that is not a list of square names: {str(list(result))[:80]}"
+    return sorted(squares), "ok"
+
+
+def run_detector(detector: Detector, image, camera: Optional[dict] = None) -> Tuple[Optional[str], str]:
     """Call the detector and validate its answer. Returns ``(placement or None, reason)``."""
     try:
-        result = detector(image)
+        result = _call(detector, image, camera)
     except Exception as exc:  # the detector failed: report it, never crash the node
         return None, f"detector raised {type(exc).__name__}: {exc}"
     if result is None:
@@ -80,6 +145,13 @@ def run_detector(detector: Detector, image) -> Tuple[Optional[str], str]:
     if placement is None:
         return None, f"detector returned something that is not a placement FEN: {str(result)[:80]!r}"
     return placement, "ok"
+
+
+def superseded(image_at: float, request_waiting: bool, request_at: float) -> bool:
+    """Is a finished detection out of date? Yes if a request is still waiting that was made
+    after the picture was taken: the asker wants the board as it is now (for instance after
+    the arm has left it), and the request will produce the next detection."""
+    return bool(request_waiting) and image_at < request_at
 
 
 def example_detector(image_bgr) -> str:

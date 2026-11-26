@@ -9,6 +9,13 @@ On the course's Kinova Gen3 Lite (bring-up and MoveIt already running; add use_s
     ros2 launch chess_brain robot.launch.py executor:=chess_brain.kinova_executor:pick_and_place \
         board_x:=0.60 board_y:=-0.20 board_yaw_deg:=90 surface_z:=-0.056 offboard_drop:=0.0066 arm_timeout:=300
 
+With a detector that only reports which squares hold a piece (the perception of chessbot_sim):
+    ros2 launch chess_brain robot.launch.py observation:=occupancy \
+        detector:=chessbot_sim_ros.camera_detector:detect \
+        image_topic:=/camera/image_raw camera_info_topic:=/camera/camera_info \
+        executor:=chess_brain.kinova_executor:pick_and_place board_x:=... board_y:=...
+    The arm adapter then looks at the board before every action (check_squares, see below).
+
 Until a detector is plugged in, be the vision yourself from a second shell:
     ros2 run chess_brain operator_node        (paste a placement FEN, or press Enter for the detect button)
 
@@ -16,7 +23,7 @@ Not for use together with sim_game.launch.py (the simulator also answers arm_act
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, Shutdown
+from launch.actions import DeclareLaunchArgument, OpaqueFunction, Shutdown
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
@@ -28,7 +35,7 @@ BRAIN = {
     "think_time": ("0.5", float, "robot seconds per move"),
     "skill_level": ("5", int, "robot Stockfish Skill Level 0-20"),
     "stable_time": ("1.0", float, "seconds a detection must stay unchanged"),
-    "arm_timeout": ("120.0", float, "seconds to wait for arm_done"),
+    "arm_timeout": ("300.0", float, "seconds to wait for arm_done (a capture on the real arm takes about two minutes)"),
     "allow_promotion": ("false", bool, "true only if spare queens are on the table"),
 }
 VISION = {
@@ -36,6 +43,8 @@ VISION = {
     "image_topic": ("chessbot/camera/image", str, "sensor_msgs/Image topic of the camera"),
     "period": ("0.0", float, "> 0: also detect every N seconds (continuous mode)"),
     "max_image_age": ("2.0", float, "seconds; older camera frames are not used"),
+    "camera_info_topic": ("", str, "sensor_msgs/CameraInfo topic, for a detector that needs the camera matrix"),
+    "detector_config": ("", str, "JSON object with the detector's own settings"),
 }
 ARM = {
     "executor": ("", str, "package.module:function doing one pick-and-place; empty = dry run"),
@@ -51,6 +60,7 @@ ARM = {
     "grip_direction": ("auto", str, "auto = the gripper turns to stay clear of the other pieces; fixed = never"),
     "grip_gap": ("0.040", float, "width between the open fingers assumed when choosing the direction (m)"),
     "grip_piece_radius": ("0.0125", float, "radius of a piece at finger height assumed for that (m)"),
+    "check_timeout": ("15.0", float, "seconds the arm adapter waits for the camera before an action"),
 }
 # Used by executor:=chess_brain.kinova_executor:pick_and_place (the course's Kinova Gen3 Lite).
 KINOVA = {
@@ -67,6 +77,15 @@ KINOVA = {
     "park": ("work", str, "where the arm waits between moves: work or retract"),
     "add_table": ("true", bool, "add the lab table and mount to MoveIt's planning scene"),
 }
+
+
+# Not passed through as they are: see _adapters().
+OBSERVATION = ("fen", "what the detector returns: fen (a placement FEN) or occupancy (the occupied squares)")
+CHECK_SQUARES = (
+    "auto",
+    "look at the board before every arm action: off, occupancy, or auto (= occupancy when "
+    "observation is occupancy and a detector is set, else off)",
+)
 
 
 def params(group):
@@ -87,9 +106,25 @@ def generate_launch_description():
         on_exit=Shutdown(reason="chess_brain exited"),
         **common,
     )
+    declared.append(DeclareLaunchArgument("observation", default_value=OBSERVATION[0], description=OBSERVATION[1]))
+    declared.append(DeclareLaunchArgument("check_squares", default_value=CHECK_SQUARES[0], description=CHECK_SQUARES[1]))
+    return LaunchDescription(declared + [brain, OpaqueFunction(function=_adapters, args=[common])])
+
+
+def _adapters(context, common):
+    """The two adapter nodes. Their settings depend on each other, so they are worked out here."""
+    observation = LaunchConfiguration("observation").perform(context).strip().lower()
+    if observation not in ("fen", "occupancy"):
+        raise RuntimeError(f"observation must be fen or occupancy, not {observation!r}")
+    check = LaunchConfiguration("check_squares").perform(context).strip().lower()
+    if check == "auto":
+        has_detector = bool(LaunchConfiguration("detector").perform(context).strip())
+        check = "occupancy" if observation == "occupancy" and has_detector else "off"
     # No name= on the adapters: launch would rename EVERY node in that process, including a node
     # the plug-in creates for its own ROS calls. The executables already name themselves.
-    vision = Node(executable="vision_adapter_node", parameters=[params(VISION)], **common)
+    vision = Node(executable="vision_adapter_node", parameters=[params(VISION), {"output": observation}], **common)
     # The KINOVA parameters are read by the node that kinova_executor creates inside this process.
-    arm = Node(executable="arm_adapter_node", parameters=[params(ARM), params(KINOVA)], **common)
-    return LaunchDescription(declared + [brain, vision, arm])
+    arm = Node(
+        executable="arm_adapter_node", parameters=[params(ARM), params(KINOVA), {"check_squares": check}], **common
+    )
+    return [vision, arm]

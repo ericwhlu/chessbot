@@ -16,6 +16,13 @@ The arm team plugs in ONE function (see arm_adapter.py for its contract). This n
 * when chess_brain says which squares are occupied, it chooses for every action the direction
   the gripper should open along so that its fingers stay clear of the other pieces
   (grip_direction.py) and hands it to the executor; ``-p grip_direction:=fixed`` turns that off;
+* with ``-p check_squares:=occupancy`` it looks before it moves: it asks for a detection
+  (``chessbot/detect_request``), waits for the occupied squares on ``chessbot/detected_occupancy``
+  and only starts if the pick square holds a piece and the place square is empty. It does so
+  before the first action of a command and again before the second half of a capture (after
+  parking the arm), so that with a vision that cannot tell the pieces apart a capturing piece is
+  never put down on a captured piece that is still there. The parked arm must not hide the board
+  from the camera (executor parameter ``park``);
 * if the executor function has a ``prepare`` attribute (a function without arguments), it is
   called once at start-up, before any command: the place to bring the arm up;
 * if it has an ``operator`` attribute, every command on ``chessbot/cmd`` is passed to it.
@@ -30,6 +37,7 @@ import os
 import queue
 import sys
 import threading
+import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 
@@ -58,6 +66,8 @@ class ArmAdapterNode(Node):
         self.declare_parameter("grip_direction", "auto")   # auto = chosen per action; fixed = the arm's default
         declare_number("grip_gap", Fingers.gap)                    # m between the open fingers (model)
         declare_number("grip_piece_radius", Fingers.piece_radius)  # m, another piece at finger height (model)
+        self.declare_parameter("check_squares", "off")   # off | occupancy: look at the board before moving
+        declare_number("check_timeout", 15.0)             # s to wait for the camera's answer
         declare_board_parameters(self)             # board_x, board_y, board_yaw_deg, surface_z, ...
 
         def number(name):
@@ -70,6 +80,13 @@ class ArmAdapterNode(Node):
             raise ValueError(f"grip_direction must be auto or fixed, not {how!r}")
         self._grips = how == "auto"
         self._fingers = Fingers(gap=number("grip_gap"), piece_radius=number("grip_piece_radius"))
+        check = str(self.get_parameter("check_squares").value).strip().lower()
+        if check not in ("off", "occupancy"):
+            raise ValueError(f"check_squares must be off or occupancy, not {check!r}")
+        self._check = check == "occupancy"
+        self._check_timeout = number("check_timeout")
+        self._seen = None               # (when it arrived, the squares) of the latest occupancy frame
+        self._seen_lock = threading.Lock()
 
         spec = str(self.get_parameter("executor").value).strip()
         if spec:
@@ -90,6 +107,9 @@ class ArmAdapterNode(Node):
         self._pub_done = self.create_publisher(String, "chessbot/arm_done", 10)
         self.create_subscription(String, "chessbot/arm_actions", self._on_arm_actions, 10)
         self.create_subscription(String, "chessbot/cmd", self._on_cmd, 10)
+        if self._check:
+            self._pub_look = self.create_publisher(String, "chessbot/detect_request", 10)
+            self.create_subscription(String, "chessbot/detected_occupancy", self._on_occupancy, 10)
         self.create_timer(0.05, self._tick, clock=Clock(clock_type=ClockType.STEADY_TIME))
 
         prepare = getattr(self._pick_and_place, "prepare", None)
@@ -100,7 +120,8 @@ class ArmAdapterNode(Node):
         a1, h8 = frame.world_xyz("a1"), frame.world_xyz("h8")
         self.get_logger().info(
             f"arm_adapter ready: {mode}; a1 at ({a1[0]:.3f}, {a1[1]:.3f}, {a1[2]:.4f}), "
-            f"h8 at ({h8[0]:.3f}, {h8[1]:.3f}, {h8[2]:.4f}); grip direction: {how}"
+            f"h8 at ({h8[0]:.3f}, {h8[1]:.3f}, {h8[2]:.4f}); grip direction: {how}; "
+            f"looking at the board before moving: {check}"
         )
 
     # ----------------------------------------------------------------- callbacks
@@ -122,6 +143,31 @@ class ArmAdapterNode(Node):
                 f"arm_actions id {self._pending.get('id')} replaced by newer id {command_id} before it started"
             )
         self._pending = payload
+
+    def _on_occupancy(self, msg: String) -> None:
+        try:
+            squares = json.loads(msg.data)
+            if not isinstance(squares, list):
+                raise ValueError("not a list")
+            seen = frozenset(str(name).strip().lower() for name in squares)
+        except ValueError as exc:
+            self.get_logger().warning(f"malformed detected_occupancy ignored: {exc}", throttle_duration_sec=10.0)
+            return
+        with self._seen_lock:
+            self._seen = (time.monotonic(), seen)
+
+    def _look(self):
+        """Runs in the worker thread: ask for a detection and wait for a frame that arrived after
+        the request. Returns the occupied squares, or None after ``check_timeout``."""
+        asked = time.monotonic()
+        self._pub_look.publish(String(data="arm_check"))
+        while time.monotonic() - asked < self._check_timeout and not self._stop.is_set():
+            with self._seen_lock:
+                latest = self._seen
+            if latest is not None and latest[0] > asked:
+                return latest[1]
+            time.sleep(0.05)
+        return None
 
     def _on_cmd(self, msg: String) -> None:
         command = msg.data.strip().lower()
@@ -155,7 +201,8 @@ class ArmAdapterNode(Node):
                 return "arm_adapter is shutting down"
             return self._pick_and_place(pick_xyz, place_xyz, info)
 
-        self._replies.put((payload, run_command(payload, self._locations, guarded, self._fingers, self._grips)))
+        look = self._look if self._check else None
+        self._replies.put((payload, run_command(payload, self._locations, guarded, self._fingers, self._grips, look)))
 
     def _tick(self) -> None:
         while True:

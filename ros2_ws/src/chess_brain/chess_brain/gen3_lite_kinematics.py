@@ -17,7 +17,7 @@ from __future__ import annotations
 import math
 import random
 from functools import lru_cache
-from typing import List, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 Vector = Tuple[float, float, float]
 Matrix = Tuple[Vector, Vector, Vector]  # rows
@@ -226,3 +226,54 @@ def top_down_solutions(x: float, y: float, z: float, yaw: float = 0.0) -> List[L
         list(q)
         for q in _top_down(round(float(x), 5), round(float(y), 5), round(float(z), 5), round(float(yaw), 6))
     ]
+
+
+def nearest_solution(position: Vector, rotation: Matrix, joints: Sequence[float]):
+    """The joint angles for the pose that the arm reaches from ``joints`` without changing its
+    configuration (same elbow and wrist branch), and how far that is: ``(largest single-joint
+    change in rad, joint angles)``. None if there is no such solution inside the joint limits."""
+    found = _refine(joints, position, rotation)
+    if found is None:
+        return None
+    return max(abs(a - b) for a, b in zip(found, joints)), found
+
+
+def rank_yaws(
+    x: float,
+    y: float,
+    z: float,
+    grip: float,
+    joints: Optional[Sequence[float]] = None,
+    then_z: Optional[float] = None,
+    previous_yaw: Optional[float] = None,
+) -> List[float]:
+    """The two tool yaws that open the fingers along ``grip``, the better one first.
+
+    With the arm's present ``joints`` the better one is the yaw it can turn to without leaving its
+    configuration and its joint limits, and of two such the one with the smaller joint motion: the
+    last joint turns the gripper, and only one of the two yaws may lie inside its range. ``then_z``
+    (the height the tool is lowered to next, same x and y) must be reachable the same way.
+    Without ``joints`` the yaw nearer to ``previous_yaw`` comes first, and a yaw with no joint
+    solution at all goes last.
+    """
+    yaws = list(grip_yaws(float(grip)))
+
+    def cost(yaw: float):
+        rotation = top_down_rotation(yaw)
+        if joints is not None:
+            near = nearest_solution((x, y, z), rotation, joints)
+            if near is not None and then_z is not None and nearest_solution((x, y, then_z), rotation, near[1]) is None:
+                near = None
+            if near is not None:
+                return (0, near[0])
+        reachable = bool(top_down_solutions(x, y, z, yaw)) and (
+            then_z is None or bool(top_down_solutions(x, y, then_z, yaw))
+        )
+        turn = 0.0
+        if previous_yaw is not None:
+            turn = abs(math.atan2(math.sin(yaw - previous_yaw), math.cos(yaw - previous_yaw)))
+        # reachable only by another configuration (1), or not at all (2)
+        return (1 if reachable else 2, turn)
+
+    yaws.sort(key=cost)
+    return yaws

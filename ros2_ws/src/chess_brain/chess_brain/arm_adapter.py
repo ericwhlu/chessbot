@@ -152,34 +152,91 @@ def plan_grips(
     return grips
 
 
+def check_action(pick_name: str, place_name: str, occupied, locations: Locations) -> Optional[str]:
+    """May this action start, given the squares the camera sees occupied right now? None if
+    yes, else the reason. Only squares are checked: the pick square must hold a piece and the
+    place square must be empty. Off-board spots (DISCARD, spares) are not in the camera's list.
+
+    This is what stands between a capture and a collision when the vision only reports which
+    squares are occupied: if the captured piece is still there, the capturing piece is not
+    put down on top of it.
+    """
+    seen = {str(name).strip().lower() for name in occupied}
+
+    def square(name: str) -> Optional[str]:
+        key = str(name).strip()
+        if key.upper() == DISCARD or key.upper() in locations.spares:
+            return None
+        return key.lower()
+
+    pick, place = square(pick_name), square(place_name)
+    if pick is not None and pick not in seen:
+        return f"the camera sees no piece on {pick}"
+    if place is not None and place in seen:
+        return f"the camera sees a piece on {place}, where the piece from {pick_name} is to go"
+    return None
+
+
 def run_command(
-    payload: dict, locations: Locations, executor: Executor, fingers: Optional[Fingers] = None, grips: bool = True
+    payload: dict,
+    locations: Locations,
+    executor: Executor,
+    fingers: Optional[Fingers] = None,
+    grips: bool = True,
+    look: Optional[Callable[[], Optional[object]]] = None,
 ) -> dict:
     """Execute one ``arm_actions`` payload and return the ``arm_done`` reply.
 
     ``grips=False`` never passes grip directions to the executor; ``fingers`` sizes the model
     that chooses them (defaults in grip_direction.py).
+
+    ``look``, if given, returns the squares the camera sees occupied at that moment (or None if
+    it could not look). It is called before the first action, and before any action that puts
+    a piece where an earlier action of the same command took one away (the second half of a
+    capture); that action only starts if the camera agrees with it (``check_action``). The
+    executor is told to park before such a look, so that the arm is not in the picture.
     """
     done_id = payload.get("id") if isinstance(payload, dict) else None
     try:
         plan = plan_command(payload, locations)
-        chosen = plan_grips(payload, locations, fingers) if grips else None
     except ValueError as exc:
         return {"id": done_id, "status": "failed", "failed_action_index": -1, "reason": f"rejected: {exc}"}
 
+    try:
+        chosen = plan_grips(payload, locations, fingers) if grips else None
+    except ValueError:
+        chosen = None   # the list of occupied squares is a hint: unreadable, the arm's own default is used
+
     count = len(plan)
+    # Looking costs time and a trip to the parking pose, so it is done where it matters: before
+    # the command starts, and before a piece is put where an earlier action took one away.
+    emptied, looks = set(), []
+    for pick_name, _, place_name, _ in plan:
+        looks.append(look is not None and (not looks or place_name.strip().lower() in emptied))
+        emptied.add(pick_name.strip().lower())
     for index, (pick_name, pick_xyz, place_name, place_xyz) in enumerate(plan):
         info = {
             "id": done_id,
             "move": payload.get("move"),
             "index": index,
             "count": count,
-            "last": index == count - 1,
+            "last": index == count - 1 or looks[index + 1],   # park: the camera looks next
             "pick": pick_name,
             "place": place_name,
         }
         if chosen is not None:
             info["pick_grip"], info["place_grip"], info["grip_clearance"] = chosen[index]
+        if looks[index]:
+            try:
+                seen = look()
+            except Exception as exc:
+                seen, problem = None, f"{type(exc).__name__}: {exc}"
+            else:
+                problem = "the camera gave no picture of the board" if seen is None else None
+            problem = problem or check_action(pick_name, place_name, seen, locations)
+            if problem is not None:
+                reason = f"not started: {problem}; no piece was moved by this action"
+                return {"id": done_id, "status": "failed", "failed_action_index": index, "reason": reason}
         try:
             result = executor(pick_xyz, place_xyz, info)
         except Exception as exc:  # the arm code failed: report it, never crash the node

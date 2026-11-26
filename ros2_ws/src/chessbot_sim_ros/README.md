@@ -91,6 +91,26 @@ only for the opponent's hand, for the operator who finishes a move the arm faile
 The perception reports which squares hold a piece, not which piece. What that costs is written
 in `chess_brain/occupancy.py` and in the docstring of `chess_brain/machine.py`.
 
+## The perception as a detector for a real camera
+
+`chessbot_sim_ros/camera_detector.py` wraps the perception of `chessbot_sim/` (unchanged) as a
+detector for chess_brain's `vision_adapter_node`: camera image and camera matrix in, occupied squares
+out. It supplies what the simulation used to supply: the tag corners from `chessbot_sim/tags.json`,
+the intrinsics from `sensor_msgs/CameraInfo`, the colour order, undistortion.
+
+```bash
+ros2 launch chess_brain robot.launch.py observation:=occupancy \
+    detector:=chessbot_sim_ros.camera_detector:detect \
+    image_topic:=/camera/image_raw camera_info_topic:=/camera/camera_info \
+    detector_config:='{"square_size": 0.05}' ...
+```
+
+Checked: on frames rendered by the simulation it reports the same squares as the simulation's own
+pipeline, and the squares the pieces really stand on (`test/test_camera_detector.py`, 9 positions).
+Not checked: any real camera. On a real board it needs the four AprilTags printed and placed as in
+`tags.json`, and the YOLO weights were trained on rendered images. The node's Python needs opencv,
+torch and ultralytics (`scripts/setup_sim_deps.sh`). The settings are listed in the file's docstring.
+
 ## Tests
 
 ```bash

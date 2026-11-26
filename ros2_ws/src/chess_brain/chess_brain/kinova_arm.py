@@ -32,7 +32,7 @@ from rclpy.duration import Duration
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 
-from .gen3_lite_kinematics import forward, grip_yaws, top_down_quaternion, top_down_solutions
+from .gen3_lite_kinematics import forward, grip_yaws, rank_yaws, top_down_quaternion, top_down_solutions
 from .kinova_executor import FINGER_CLOSED, LAB_SPEED_LIMIT, TABLE_TOP_Z, Settings
 
 ARM_JOINTS = ["joint_1", "joint_2", "joint_3", "joint_4", "joint_5", "joint_6"]
@@ -340,26 +340,14 @@ class KinovaArm(Node):
     def _yaw_candidates(
         self, x: float, y: float, z: float, grip: Optional[float], cartesian: bool, then_z: Optional[float] = None
     ) -> List[float]:
-        """The tool yaws to try, best first. A straight line gets one candidate only: if that
-        line cannot be planned, the caller decides what to do next."""
+        """The tool yaws to try, best first (gen3_lite_kinematics.rank_yaws, from the measured
+        joint angles). A straight line gets one candidate only: if that line cannot be planned,
+        the caller decides what to do next."""
         if grip is None:
             return [0.0]
-        yaws = list(grip_yaws(float(grip)))
-        current = [self._joint_positions.get(name) for name in ARM_JOINTS]
-
-        def cost(yaw: float):
-            found = top_down_solutions(x, y, z, yaw)
-            if found and then_z is not None and not top_down_solutions(x, y, then_z, yaw):
-                found = []                 # it could get there but not down to the piece
-            if self._yaw is not None:      # coming from a known top-down pose: the smaller turn
-                turn = abs(math.atan2(math.sin(yaw - self._yaw), math.cos(yaw - self._yaw)))
-            elif found and all(value is not None for value in current):   # from WORK or parking
-                turn = min(max(abs(a - b) for a, b in zip(q, current)) for q in found)
-            else:
-                turn = 0.0
-            return (not found, turn)       # a yaw the arm cannot reach at all goes last
-
-        yaws.sort(key=cost)
+        measured = [self._joint_positions.get(name) for name in ARM_JOINTS]
+        joints = measured if all(value is not None for value in measured) else None
+        yaws = rank_yaws(x, y, z, float(grip), joints, then_z, self._yaw)
         return yaws[:1] if cartesian else yaws
 
     def _pose_arguments(self, x: float, y: float, z: float, cartesian: bool, yaw: float = 0.0) -> dict:
