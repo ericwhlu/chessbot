@@ -1,0 +1,232 @@
+Date: Thu 2026-11-26 00:35 to 01:10 (America/New_York)
+Machine: course VM vcm-54426, ROS 2 Jazzy, Gazebo station from the course's Lab 6 launch
+Finding: in the current course image the simulated Gen3 Lite gripper does not move; in an older build of
+         the same image it does.
+
+           ghcr.io/mems-intro-to-robotics/mems-robotics-toolkit:kinova-jazzy-latest
+             = kinova-jazzy-20261015 (digest sha256:21ec63baffdb..., built 2026-10-15):
+             the finger sits at -0.100 from the start of the simulation, and a GripperCommand goal ends
+             with "stalled: true, reached_goal: false" at -0.100.
+           ghcr.io/mems-intro-to-robotics/mems-robotics-toolkit:kinova-jazzy-20260924 (built 2026-09-24):
+             the finger starts at about 0.0, a close to 0.8 ends at 0.790 with "reached_goal: true".
+
+         Same VM, same Lab 6 launch file, same command. It is not chess_brain: the direct action goal
+         stalls in a freshly started simulation before any of our code runs, and the course's own Lab 6
+         milestone 1 (which read about 0.43 on a block and 0.80 on nothing when the lab was done on an
+         earlier image) now logs "fingers closed at -0.100" twice.
+         Not a wiring problem: the gripper controller is active, its command interface is available and
+         claimed, and gz_ros_control loads the finger joints without warnings.
+         Which change between the two builds causes it is not known. kinova-jazzy-20261008 was not tried.
+
+Use:     for Gazebo work that needs the gripper, start the container from :kinova-jazzy-20260924. On a
+         machine that already has :kinova-jazzy-latest the extra download is about 60 MB.
+         This is a simulation-only matter; the finger parameters below apply only when simulated.
+
+The tag list, digests and build dates were read from the public registry (ghcr.io) on 2026-11-26:
+         kinova-jazzy-20260711, -20260825, -20260921, -20260924, -20261008, -20261015, -latest.
+
+----------------------------------------------------------------------------------------------------
+kinova-jazzy-latest: controllers, a direct close command, joint states (arm parked by our node)
+----------------------------------------------------------------------------------------------------
+kinova:~/workspaces# ros2 control list_controllers
+[INFO] [1795671378.495522030] [_ros2cli_2683]: waiting for service /controller_manager/list_controllers to become available...
+twist_controller                picknik_twist_controller/PicknikTwistController        inactive
+gen3_lite_2f_gripper_controller position_controllers/GripperActionController           active
+joint_state_broadcaster         joint_state_broadcaster/JointStateBroadcaster          active
+joint_group_velocity_controller velocity_controllers/JointGroupVelocityController      inactive
+joint_trajectory_controller     joint_trajectory_controller/JointTrajectoryController  active
+kinova:~/workspaces# ros2 action send_goal /gen3_lite_2f_gripper_controller/gripper_cmd control_msgs/action/GripperCommand "{command: {position: 0.8, max_effort: 100.0}}"
+Waiting for an action server to become available...
+Sending goal:
+     command:
+  position: 0.8
+  max_effort: 100.0
+
+Goal accepted with ID: 8258de4e3ffa464ba700439d4a7cd856
+
+Result:
+    position: -0.10001170635223389
+effort: 100.0
+stalled: true
+reached_goal: false
+
+Goal finished with status: SUCCEEDED
+kinova:~/workspaces# ros2 topic echo /joint_states --once
+A message was lost!!!
+	total count change:1
+	total count: 1---
+header:
+  stamp:
+    sec: 2247
+    nanosec: 432000000
+  frame_id: base_link
+name:
+- joint_1
+- joint_2
+- joint_3
+- joint_4
+- joint_5
+- joint_6
+- right_finger_bottom_joint
+position:
+- 0.3995407223701477
+- 0.019435813650488853
+- 2.2695319652557373
+- -1.5693861246109009
+- -0.8391316533088684
+- 1.970677137374878
+- -0.10001170635223389
+velocity:
+- 1.2274947948753834e-05
+- 8.712522685527802e-07
+- 0.00010233744978904724
+- 5.544722080230713e-05
+- 2.9318034648895264e-05
+- 5.077477544546127e-05
+- -3.3229589462280273e-06
+effort:
+- -3.156290461309254
+- -0.20599567890167236
+- 1.7785078287124634
+- -0.2217538058757782
+- 0.06654281169176102
+- 0.04837203025817871
+- .nan
+---
+
+----------------------------------------------------------------------------------------------------
+kinova-jazzy-latest: freshly restarted Gazebo, nothing of ours running
+----------------------------------------------------------------------------------------------------
+kinova:/chessbot/ros2_ws# ros2 topic echo /joint_states --once --field position
+A message was lost!!!
+	total count change:1
+	total count: 1---
+array('d', [1.882228571048472e-05, 1.1408897080400493e-05, 3.77121614292264e-05, -2.3458573195966892e-05, 1.6051981219789013e-05, -5.813483221572824e-05, -0.10002461075782776])
+---
+kinova:/chessbot/ros2_ws# ros2 action send_goal /gen3_lite_2f_gripper_controller/gripper_cmd control_msgs/action/GripperCommand "{command: {position: 0.8, max_effort: 100.0}}"
+Waiting for an action server to become available...
+Sending goal:
+     command:
+  position: 0.8
+  max_effort: 100.0
+
+Goal accepted with ID: 0579ca4ae8224463ae5ad96ea51f4b8e
+
+Result:
+    position: -0.10002461075782776
+effort: 100.0
+stalled: true
+reached_goal: false
+
+Goal finished with status: SUCCEEDED
+kinova:/chessbot/ros2_ws#
+
+----------------------------------------------------------------------------------------------------
+kinova-jazzy-latest: the course's Lab 6 milestone 1
+----------------------------------------------------------------------------------------------------
+kinova:~/workspaces# cd ~/workspaces/intro-to-robotics-fall-2026-lab-06-algdc/ros2_ws && source install/setup.bash && ros2 run lab06_moveit blocks reset
+[INFO] [1795672180.374497479] [lab06_blocks]: Added the table and mount to MoveIt's planning scene.
+[INFO] [1795672182.980947225] [lab06_blocks]: Blocks reset in Gazebo and in the planning scene.
+kinova:~/workspaces/intro-to-robotics-fall-2026-lab-06-algdc/ros2_ws# ros2 run lab06_moveit pick_and_place 1
+[INFO] [1795672192.184328716] [pick_and_place]: Lab 6 pick and place started (<netid>).
+[INFO] [1795672193.360421916] [pick_and_place]: MoveIt is ready.
+[INFO] [1795672193.370946255] [pick_and_place]: Added the table and mount to MoveIt's planning scene.
+[INFO] [1795672193.371567524] [pick_and_place]: Milestone 1: pick
+[INFO] [1795672203.139793811] [pick_and_place]: Added the table and mount to MoveIt's planning scene.
+[INFO] [1795672214.693559780] [pick_and_place]: Blocks reset in Gazebo and in the planning scene.
+[INFO] [1795672223.917081463] [pick_and_place]: block_1: fingers closed at -0.100
+[INFO] [1795672226.887896423] [pick_and_place]: Milestone 1: holding block_1 for 15 s. Take the screenshot now.
+[INFO] [1795672241.893878773] [pick_and_place]: Added the table and mount to MoveIt's planning scene.
+[INFO] [1795672252.458284441] [pick_and_place]: Blocks reset in Gazebo and in the planning scene.
+[INFO] [1795672259.414598323] [pick_and_place]: Empty gripper: fingers closed at -0.100
+[ERROR] [1795672259.429154883] [pick_and_place]: Action '/gen3_lite_2f_gripper_controller/gripper_cmd' was unsuccessful: 5
+[INFO] [1795672260.045958724] [pick_and_place]: Milestone 1 done.
+
+----------------------------------------------------------------------------------------------------
+kinova-jazzy-latest: how the image defines the finger joint in simulation; images on the VM
+----------------------------------------------------------------------------------------------------
+kinova:~/workspaces/intro-to-robotics-fall-2026-lab-06-algdc/ros2_ws# grep -nE "finger_lower|finger_upper|effort|xacro:macro|xacro:arg|xacro:property" /opt/kortex_ws/install/kortex_description/share/kortex_description/grippers/gen3_lite_2f/urdf/gen3_lite_2f_macro.xacro | head -40
+4:  <xacro:macro name="load_gripper" params="
+22:  <xacro:property name="simulated" value="${(use_fake_hardware or sim_isaac or sim_gazebo) and not moveit_active}"/>
+34:  <xacro:property name="finger_lower" value="${-0.1 if simulated else 0.0}"/>
+35:  <xacro:property name="finger_upper" value="${0.96 if simulated else 0.85}"/>
+36:  <xacro:property name="right_bottom_effort" value="${10 if simulated else (1000 if moveit_active else 50)}"/>
+37:  <xacro:property name="left_bottom_effort" value="${10 if simulated else 1000}"/>
+38:  <xacro:property name="left_bottom_velocity" value="${0.6 if simulated else 1000}"/>
+128:    <limit lower="${finger_lower}" upper="${finger_upper}" effort="${right_bottom_effort}" velocity="0.6" />
+164:    <limit lower="-0.50" upper="0.21" effort="1000" velocity="1000" /> <!--limit lower="-1.03" upper="0.21" effort="1000" velocity="1000" /-->
+198:    <limit lower="${finger_lower}" upper="${finger_upper}" effort="${left_bottom_effort}" velocity="${left_bottom_velocity}" />
+235:    <limit lower="-0.50" upper="0.21" effort="1000" velocity="1000" /> <!--limit lower="-1.03" upper="0.21" effort="1000" velocity="1000" /-->
+239:  </xacro:macro>
+kinova:~/workspaces/intro-to-robotics-fall-2026-lab-06-algdc/ros2_ws# ros2 param get /robot_state_publisher robot_description | tr '\n' ' ' | grep -o '<joint name="right_finger_bottom_joint".\{0,500\}'
+<joint name="right_finger_bottom_joint">       <command_interface name="position"/>       <state_interface name="position">         <param name="initial_value">0.0</param>       </state_interface>       <state_interface name="velocity">         <param name="initial_value">0.0</param>       </state_interface>     </joint>     <joint name="right_finger_tip_joint">       <param name="mimic">right_finger_bottom_joint</param>       <param name="multiplier">-0.276</param>       <param name="offset">-0.1</param>     </joint>     <joint name
+<joint name="right_finger_bottom_joint" type="revolute">     <origin rpy="1.571 0.611 1.571" xyz="0 -0.030501 0.070003"/>     <parent link="gripper_base_link"/>     <child link="right_finger_prox_link"/>     <axis xyz="0 0 -1"/>     <limit effort="10" lower="-0.1" upper="0.96" velocity="0.6"/>     <dynamics damping="0.1" friction="1"/>   </joint>   <link name="right_finger_dist_link">     <inertial>       <origin rpy="0 0 0" xyz="0.018488 0.0011091 0"/>       <mass value="0.010748"/>       <inertia ixx="6.3E-07" ixy="3.2E-07" ixz="0"
+[...]
+vm:~$ docker images --digests ghcr.io/mems-intro-to-robotics/mems-robotics-toolkit; git -C ~/workspaces/intro-to-robotics-fall-2026-lab-06-algdc log -1 --format='lab 6 last commit: %cd'
+REPOSITORY                                             TAG                       DIGEST                                                                    IMAGE ID       CREATED       SIZE
+ghcr.io/mems-intro-to-robotics/mems-robotics-toolkit   tb4-jazzy-lab10-latest    sha256:2568daad4b201fcf341fd29eb49c6275bb8c57eea35c9c4ac7651ef108c33bb6   2568daad4b20   2 weeks ago   9.66GB
+ghcr.io/mems-intro-to-robotics/mems-robotics-toolkit   turtlebot4-jazzy-latest   sha256:5588200d8a1386926e5f86b11ce40a129623de227617a41a0ace667c57829418   5588200d8a13   3 weeks ago   9.66GB
+ghcr.io/mems-intro-to-robotics/mems-robotics-toolkit   kinova-jazzy-latest       sha256:21ec63baffdb045aebdee68f9abf879e3336a6d721f4081328ae27fdf181aa33   21ec63baffdb   5 weeks ago   9.44GB
+ghcr.io/mems-intro-to-robotics/mems-robotics-toolkit   crazyflie-jazzy-latest    sha256:084c79e00ac206a8fb4c9a7598288b456097ffa1cb4f2722d70c9376ab65db21   084c79e00ac2   6 weeks ago   9.06GB
+lab 6 last commit: Thu Oct 1 17:29:29 2026 -0400
+
+----------------------------------------------------------------------------------------------------
+kinova-jazzy-latest: Gazebo's log for the finger joints; the hardware interfaces
+----------------------------------------------------------------------------------------------------
+kinova:~/workspaces/intro-to-robotics-fall-2026-lab-06-algdc/ros2_ws# grep -rihE "finger|mimic" /root/.ros/log/ | cut -c1-230 | sort -u | head -60
+[INFO] [1795666674.571942148] [gz_ros_control]: Loading joint: right_finger_bottom_joint
+[INFO] [1795666674.572033913] [gz_ros_control]: Loading joint: right_finger_tip_joint
+[INFO] [1795666674.572048747] [gz_ros_control]: Joint 'right_finger_tip_joint'is mimicking joint 'right_finger_bottom_joint' with multiplier: -0.276 and offset: -0.1
+[INFO] [1795666674.572073792] [gz_ros_control]: Loading joint: left_finger_bottom_joint
+[INFO] [1795666674.572080440] [gz_ros_control]: Joint 'left_finger_bottom_joint'is mimicking joint 'right_finger_bottom_joint' with multiplier: 1 and offset: 0
+[INFO] [1795666674.572099334] [gz_ros_control]: Loading joint: left_finger_tip_joint
+[INFO] [1795666674.572105613] [gz_ros_control]: Joint 'left_finger_tip_joint'is mimicking joint 'right_finger_bottom_joint' with multiplier: -0.276 and offset: -0.1
+[INFO] [1795668905.286243211] [gz_ros_control]: Loading joint: right_finger_bottom_joint
+[INFO] [1795668905.286296515] [gz_ros_control]: Loading joint: right_finger_tip_joint
+[INFO] [1795668905.286303726] [gz_ros_control]: Joint 'right_finger_tip_joint'is mimicking joint 'right_finger_bottom_joint' with multiplier: -0.276 and offset: -0.1
+[INFO] [1795668905.286323544] [gz_ros_control]: Loading joint: left_finger_bottom_joint
+[INFO] [1795668905.286329862] [gz_ros_control]: Joint 'left_finger_bottom_joint'is mimicking joint 'right_finger_bottom_joint' with multiplier: 1 and offset: 0
+[INFO] [1795668905.286348524] [gz_ros_control]: Loading joint: left_finger_tip_joint
+[INFO] [1795668905.286353890] [gz_ros_control]: Joint 'left_finger_tip_joint'is mimicking joint 'right_finger_bottom_joint' with multiplier: -0.276 and offset: -0.1
+[INFO] [1795671099.172097644] [chess_kinova_arm]: d7: fingers closed at -0.10
+[INFO] [1795671986.839074770] [gz_ros_control]: Loading joint: right_finger_bottom_joint
+[INFO] [1795671986.839132269] [gz_ros_control]: Loading joint: right_finger_tip_joint
+[INFO] [1795671986.839139598] [gz_ros_control]: Joint 'right_finger_tip_joint'is mimicking joint 'right_finger_bottom_joint' with multiplier: -0.276 and offset: -0.1
+[INFO] [1795671986.839160639] [gz_ros_control]: Loading joint: left_finger_bottom_joint
+[INFO] [1795671986.839167381] [gz_ros_control]: Joint 'left_finger_bottom_joint'is mimicking joint 'right_finger_bottom_joint' with multiplier: 1 and offset: 0
+[INFO] [1795671986.839187014] [gz_ros_control]: Loading joint: left_finger_tip_joint
+[INFO] [1795671986.839193445] [gz_ros_control]: Joint 'left_finger_tip_joint'is mimicking joint 'right_finger_bottom_joint' with multiplier: -0.276 and offset: -0.1
+[INFO] [1795672223.917081463] [pick_and_place]: block_1: fingers closed at -0.100
+[INFO] [1795672259.414598323] [pick_and_place]: Empty gripper: fingers closed at -0.100
+kinova:~/workspaces/intro-to-robotics-fall-2026-lab-06-algdc/ros2_ws# ros2 control list_hardware_interfaces | grep -iE "finger|gripper"
+	right_finger_bottom_joint/position [available] [claimed]
+	right_finger_bottom_joint/position
+	right_finger_bottom_joint/velocity
+kinova:~/workspaces/intro-to-robotics-fall-2026-lab-06-algdc/ros2_ws#
+
+----------------------------------------------------------------------------------------------------
+kinova-jazzy-20260924: finger position after start, then a direct close command
+----------------------------------------------------------------------------------------------------
+inova:~/workspaces# ros2 topic echo /joint_states --once --field position
+A message was lost!!!
+	total count change:1
+	total count: 1---
+array('d', [7.95370169726084e-07, 7.198407558917097e-08, 4.473706383123499e-07, -2.323182570762583e-07, -3.797281600270708e-09, 2.3220111415866995e-06, -0.0007966863340698183])
+---
+kinova:~/workspaces# ros2 action send_goal /gen3_lite_2f_gripper_controller/gripper_cmd control_msgs/action/GripperCommand "{command: {position: 0.8, max_effort: 100.0}}"
+Waiting for an action server to become available...
+Sending goal:
+     command:
+  position: 0.8
+  max_effort: 100.0
+
+Goal accepted with ID: 1c29d8a724b9422f9280bff24531c5f0
+
+Result:
+    position: 0.7900062203407288
+effort: 100.0
+stalled: false
+reached_goal: true
+
+Goal finished with status: SUCCEEDED
+kinova:~/workspaces#

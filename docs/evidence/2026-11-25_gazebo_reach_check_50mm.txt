@@ -1,0 +1,94 @@
+Date: Wed 2026-11-25 23:55 (America/New_York)
+Machine: course VM vcm-54426, course Docker image ghcr.io/mems-intro-to-robotics/mems-robotics-toolkit:kinova-jazzy-latest, ROS 2 Jazzy;
+         Gazebo station from the course's Lab 6 launch (Gen3 Lite on its mount and plate), MoveIt from
+         kinova_gen3_lite_moveit_config sim.launch.py
+Branch:  feature/kinova-executor @ eb0922d
+Test:    which squares of the 400 mm board (50 mm squares) can the Gen3 Lite reach with the gripper straight
+         down? The board as close to the arm as the 12 in mount plate allows (near edge of the playing area
+         at x = 0.172 m, i.e. the plate edge plus the print's 20 mm margin), rank 8 towards the arm:
+           ros2 run chess_brain reach_check --ros-args -p use_sim_time:=true -p board_x:=0.572 \
+               -p board_y:=-0.20 -p board_yaw_deg:=90 -p surface_z:=-0.056 -p offboard_drop:=0.0066
+         Each square is asked at the carrying height and at the gripping height (kinova_executor.Settings
+         defaults: fingertips 150 mm and 20 mm above the board). The arm does not move.
+
+Result: 54 of 64 squares. The whole far rank (rank 1 in this layout) and a2, h2 are out of reach.
+        MoveIt (collision-aware compute_ik) and the package's own kinematics agree on all 148 poses, and
+        the two models differ by 0.00 mm for the arm's pose at start-up. The same map came out of a
+        separate calculation on a laptop beforehand. Exit code 2 is reach_check's "not everything is
+        reachable".
+        With the gripper straight down the usable radius of this arm is about 0.15 to 0.52 m from the base
+        axis; this board placement needs 0.20 to 0.57 m. No placement fits 50 mm squares with a margin.
+        By kinematics alone, 40 mm squares (320 mm board) at the same near edge fit with about 25 mm to
+        spare; that has not been asked of MoveIt yet.
+        The discard slots and spare-queen spots marked '.' are parameters and can be moved.
+
+History: the first run of reach_check (commit ff136a2) reported 9 of 64 in a random pattern, with one
+        "IK computation failed! Error code: -31" per request. It asked through pymoveit2's compute_ik, which
+        leaves MoveIt's solver its default budget: KDL with kinematics_solver_timeout 0.005 (below). From
+        one guess in 5 ms it misses most poses that have a solution. eb0922d computes the solutions in
+        gen3_lite_kinematics.py and hands them to MoveIt as starting points. The last lines of that first
+        run are kept at the end of this file.
+        One run in between stopped with "The simulation clock is not advancing": Gazebo was paused.
+
+----------------------------------------------------------------------------------------------------
+cat .../kinova_gen3_lite_moveit_config/config/kinematics.yaml
+----------------------------------------------------------------------------------------------------
+arm:
+  kinematics_solver: kdl_kinematics_plugin/KDLKinematicsPlugin
+  kinematics_solver_search_resolution: 0.0050000000000000001
+  kinematics_solver_timeout: 0.0050000000000000001
+
+----------------------------------------------------------------------------------------------------
+reach_check @ eb0922d
+----------------------------------------------------------------------------------------------------
+kinova:/chessbot/ros2_ws# ros2 run chess_brain reach_check --ros-args -p use_sim_time:=true -p board_x:=0.572 -p board_y:=-0.20 -p board_yaw_deg:=90 -p surface_z:=-0.056 -p offboard_drop:=0.0066
+[INFO] [1795668925.265462177] [chess_reach_check]: MoveIt is ready.
+[INFO] [1795668925.266295231] [chess_reach_check]: end_effector_link: this package's kinematics and MoveIt differ by 0.00 mm.
+[INFO] [1795668925.773515224] [chess_reach_check]: Added the table and mount to MoveIt's planning scene.
+[INFO] [1795668925.780997752] [chess_reach_check]: checking the board: a1 at (0.547, -0.175), h8 at (0.197, 0.175), surface z -0.0560; carrying at z 0.251, gripping at z 0.121 (end_effector_link in base_link); asking MoveIt's compute_ik (collision-aware), starting from this package's own solutions. This takes several minutes.
+  ... 16 of 148 poses checked
+  ... 32 of 148 poses checked
+  ... 48 of 148 poses checked
+  ... 64 of 148 poses checked
+  ... 80 of 148 poses checked
+  ... 96 of 148 poses checked
+  ... 112 of 148 poses checked
+  ... 128 of 148 poses checked
+  ... 144 of 148 poses checked
+  ... 148 of 148 poses checked
+  8  # # # # # # # #
+  7  # # # # # # # #
+  6  # # # # # # # #
+  5  # # # # # # # #
+  4  # # # # # # # #
+  3  # # # # # # # #
+  2  . # # # # # # .
+  1  . . . . . . . .
+     a b c d e f g h
+  squares fully reachable: 54 of 64
+  not fully reachable: a1 b1 c1 d1 e1 f1 g1 h1 a2 h2
+  off-board: DISCARD[0] .  DISCARD[1] .  DISCARD[2] .  DISCARD[3] #  DISCARD[4] #  DISCARD[5] #  DISCARD[6] #  DISCARD[7] #  SPARE_Q_B #  SPARE_Q_W .
+  by joint angles alone (no collision check): 54 of 64 squares
+  MoveIt and the kinematics agree on every location, at both heights
+[ros2run]: Process exited with failure 2
+kinova:/chessbot/ros2_ws#
+
+----------------------------------------------------------------------------------------------------
+for the record: the end of the first, invalid run (ff136a2)
+----------------------------------------------------------------------------------------------------
+[WARN] [1795666818.157555098] [chess_reach_check]: IK computation failed! Error code: -31.
+[WARN] [1795666818.295011907] [chess_reach_check]: IK computation failed! Error code: -31.
+[WARN] [1795666818.452510314] [chess_reach_check]: IK computation failed! Error code: -31.
+  8  . ^ ^ ^ . ^ . #
+  7  . # # . . ^ ^ ^
+  6  # ^ . . ^ # # .
+  5  ^ . . ^ . ^ ^ ^
+  4  # . . . . . . ^
+  3  . . . # ^ # . .
+  2  . . . . . . . .
+  1  . . . . . . . .
+     a b c d e f g h
+  squares fully reachable: 9 of 64
+  not fully reachable: a1 b1 c1 d1 e1 f1 g1 h1 a2 b2 c2 d2 e2 f2 g2 h2 a3 b3 c3 e3 g3 h3 b4 c4 d4 e4 f4 g4 h4 a5 b5 c5 d5 e5 f5 g5 h5 b6 c6 d6 e6 h6 a7 d7 e7 f7 g7 h7 a8 b8 c8 d8 e8 f8 g8
+  off-board: DISCARD[0] .  DISCARD[1] .  DISCARD[2] .  DISCARD[3] .  DISCARD[4] #  DISCARD[5] .  DISCARD[6] #  DISCARD[7] #  SPARE_Q_B ^  SPARE_Q_W .
+[ros2run]: Process exited with failure 2

@@ -1,0 +1,182 @@
+Date: Thu 2026-11-26 00:30 to 02:13 (America/New_York)
+Machine: course VM vcm-54426, ROS 2 Jazzy; Gazebo station from the course's Lab 6 launch (Gen3 Lite, the
+         three 50 mm blocks, the course's grasp watcher), MoveIt from kinova_gen3_lite_moveit_config.
+         Run 1 in ghcr.io/mems-intro-to-robotics/mems-robotics-toolkit:kinova-jazzy-latest, runs 2 to 5 in :kinova-jazzy-20260924
+         (the simulated gripper does not move in the latest image; see
+         2026-11-26_gazebo_gripper_image_regression.txt).
+Branch:  feature/kinova-executor @ eb0922d
+Test:    first runs of the MoveIt pick-and-place executor (kinova_executor.py + kinova_arm.py) with an arm
+         that moves. There are no chess pieces in Gazebo, so runs 3 and 5 use the Lab 6 blocks as pieces.
+
+Result: PASS for everything tried.
+  1. Whole chain, latest image, grasp_check off. robot.launch.py with the executor; a person pasted
+     "start" and the placement after e2e4 into operator_node. brain: human played e2e4 -> Stockfish d7d6
+     -> arm_actions -> arm -> arm_done ok -> robot played d7d6. Arm to WORK in 15 s, the move in 52 s, no
+     planning failure or retry. "fingers closed at -0.10": the gripper did not move (image problem).
+  2. The same in :kinova-jazzy-20260924: g8f6 in 54 s, "fingers closed at 0.80" (closed on nothing).
+  3. One block as a piece, grasp_check ON, arm_adapter_node alone, one command published by hand:
+     pick a2 (the red block at (0.440, -0.168)) -> place a4 (0.340, -0.168). "fingers closed at 0.40",
+     arm_done ok. The block was at (0.340, -0.167) when looked up while it was being lowered; a second
+     look after the move showed it back on the table (that output was not kept).
+  4. Missed grasp, grasp_check ON: a pick on an empty spot ends with
+     "FAILED at action 0: grasp missed at d6: the fingers closed on nothing (reading 0.80); no piece was moved".
+  5. Capture as two actions, grasp_check ON, 45 mm squares so that two blocks sit on square centres:
+     b3 (blue block) -> DISCARD, then f3 (yellow block) -> b3. Readings 0.39 and 0.40, arm_done ok.
+     Afterwards: blue at (0.290, 0.012), yellow at (0.440, 0.012), both at table height, the red block
+     untouched: on target to the millimetre printed.
+  The line "Action '/gen3_lite_2f_gripper_controller/gripper_cmd' was unsuccessful: 5" on opening is
+  expected: a close that presses on an object never reports success, so the open cancels it.
+
+Timing: an empty move takes about 53 s of wall time; a move with a block 4 to 5 minutes (273 s in run 3,
+        291 s + 231 s in run 5). No planning-retry warnings, so this is taken to be Gazebo running far
+        below real time while a block is held; not measured. chess_brain's arm_timeout of 300 s is too
+        short for a capture in this simulation.
+Parameters that are specific to the block test (not for chess pieces): surface_z = the tabletop (-0.0627),
+        open_position 0.0 (a 50 mm block does not fit the 42 mm opening meant for pieces, and the grasp
+        watcher lets go only after a wide opening), board placement chosen so squares land on the blocks.
+Not covered: chess pieces (shapes, grip heights per piece, the 42 mm opening between neighbours), a camera
+        (a person or a hand-written command stood in for it), a move the arm fails half-way, the real arm.
+
+----------------------------------------------------------------------------------------------------
+run 1: kinova-jazzy-latest, robot.launch.py, grasp_check:=false
+----------------------------------------------------------------------------------------------------
+kinova:/chessbot/ros2_ws# ros2 launch chess_brain robot.launch.py use_sim_time:=true executor:=chess_brain.kinova_executor:pick_and_place board_x:=0.572 board_y:=-0.20 board_yaw_deg:=90 surface_z:=-0.056 offboard_drop:=0.0066 arm_timeout:=300 grasp_check:=false
+[INFO] [launch]: All log files can be found below /root/.ros/log/2026-11-26-05-30-02-920410-vcm-54426-2426
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [brain_node-1]: process started with pid [2429]
+[INFO] [vision_adapter_node-2]: process started with pid [2430]
+[INFO] [arm_adapter_node-3]: process started with pid [2431]
+[arm_adapter_node-3] [WARN] [1795671004.238516371] [arm_adapter]: preparing the executor now: THE ARM MAY MOVE
+[arm_adapter_node-3] [INFO] [1795671004.244314367] [arm_adapter]: arm_adapter ready: executor chess_brain.kinova_executor:pick_and_place; a1 at (0.547, -0.175, -0.0560), h8 at (0.197, 0.175, -0.0560)
+[vision_adapter_node-2] [INFO] [1795671004.309682400] [vision_adapter]: vision_adapter ready: NO DETECTOR (set -p detector:=package.module:function); images from 'chessbot/camera/image'; detecting on request
+[brain_node-1] [INFO] [1795671004.578168200] [chess_brain]: chess_brain ready: engine=Stockfish 16 (/usr/games/stockfish), robot=black, stable_time=1s, allow_promotion=False, first arm_actions id=100401
+[arm_adapter_node-3] [INFO] [1795671004.629842566] [chess_kinova_arm]: kinova_executor: Settings(gripper_length=0.157, grip_height=0.02, travel_clearance=0.15, place_clearance=0.003, open_position=0.5, speed=0.2, slow_speed=0.1, max_speed=1.0, grasp_check=False, missed_reading=0.75, park='work', floor_z=-0.0627)
+[brain_node-1] [INFO] [1795671004.653537495] [chess_brain]: status: setup / setup waiting for a stable detection of the start position (or cmd: start)
+[vision_adapter_node-2] [WARN] [1795671005.090368886] [vision_adapter]: detection requested (setup) but no detector is configured
+[arm_adapter_node-3] [INFO] [1795671007.812382062] [chess_kinova_arm]: MoveIt is ready.
+[arm_adapter_node-3] [INFO] [1795671007.819512886] [chess_kinova_arm]: end_effector_link: this package's kinematics and MoveIt differ by 0.00 mm.
+[arm_adapter_node-3] [INFO] [1795671008.328898854] [chess_kinova_arm]: Added the table and mount to MoveIt's planning scene.
+[arm_adapter_node-3] [INFO] [1795671023.143950811] [chess_kinova_arm]: arm ready at the WORK pose
+[arm_adapter_node-3] [INFO] [1795671023.148751992] [arm_adapter]: executor prepared: the arm is ready
+[brain_node-1] [INFO] [1795671061.254449670] [chess_brain]: status: wait_human / waiting_human
+[brain_node-1] [INFO] [1795671084.255409657] [chess_brain]: human played e2e4
+[brain_node-1] [INFO] [1795671084.260219991] [chess_brain]: status: thinking / thinking
+[brain_node-1] [INFO] [1795671084.854525760] [chess_brain]: arm_actions: {'id': 100401, 'move': 'd7d6', 'actions': [{'pick': 'd7', 'place': 'd6'}]}
+[brain_node-1] [INFO] [1795671084.856909339] [chess_brain]: status: executing / executing d7d6
+[arm_adapter_node-3] [INFO] [1795671084.904737019] [arm_adapter]: arm_actions: id 100401 move d7d6 (1 action(s))
+[arm_adapter_node-3] [INFO] [1795671084.912241183] [chess_kinova_arm]: action 1/1: d7 (0.247, -0.025) -> d6 (0.297, -0.025)
+[arm_adapter_node-3] [INFO] [1795671099.172097644] [chess_kinova_arm]: d7: fingers closed at -0.10
+[arm_adapter_node-3] [INFO] [1795671136.708167670] [arm_adapter]: arm_done: id 100401 ok
+[brain_node-1] [INFO] [1795671136.756900147] [chess_brain]: robot played d7d6
+[brain_node-1] [INFO] [1795671136.757738444] [chess_brain]: status: wait_human / waiting_human robot move done; waiting for a detection taken after the arm finished
+[vision_adapter_node-2] [WARN] [1795671136.795378825] [vision_adapter]: detection requested (after_robot_move) but no detector is configured
+
+----------------------------------------------------------------------------------------------------
+run 2: kinova-jazzy-20260924, robot.launch.py, grasp_check:=false
+----------------------------------------------------------------------------------------------------
+kinova:/chessbot/ros2_ws# ros2 launch chess_brain robot.launch.py use_sim_time:=true executor:=chess_brain.kinova_executor:pick_and_place board_x:=0.572 board_y:=-0.20 board_yaw_deg:=90 surface_z:=-0.056 offboard_drop:=0.0066 arm_timeout:=300 grasp_check:=false
+[INFO] [launch]: All log files can be found below /root/.ros/log/2026-11-26-06-21-12-538497-vcm-54426-1001
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [brain_node-1]: process started with pid [1004]
+[INFO] [vision_adapter_node-2]: process started with pid [1005]
+[INFO] [arm_adapter_node-3]: process started with pid [1006]
+[vision_adapter_node-2] [INFO] [1795674073.578940339] [vision_adapter]: vision_adapter ready: NO DETECTOR (set -p detector:=package.module:function); images from 'chessbot/camera/image'; detecting on request
+[brain_node-1] [INFO] [1795674074.344490790] [chess_brain]: chess_brain ready: engine=Stockfish 16 (/usr/games/stockfish), robot=black, stable_time=1s, allow_promotion=False, first arm_actions id=407301
+[brain_node-1] [INFO] [1795674074.418798044] [chess_brain]: status: setup / setup waiting for a stable detection of the start position (or cmd: start)
+[arm_adapter_node-3] [WARN] [1795674074.471608803] [arm_adapter]: preparing the executor now: THE ARM MAY MOVE
+[arm_adapter_node-3] [INFO] [1795674074.475017355] [arm_adapter]: arm_adapter ready: executor chess_brain.kinova_executor:pick_and_place; a1 at (0.547, -0.175, -0.0560), h8 at (0.197, 0.175, -0.0560)
+[arm_adapter_node-3] [INFO] [1795674074.964584145] [chess_kinova_arm]: kinova_executor: Settings(gripper_length=0.157, grip_height=0.02, travel_clearance=0.15, place_clearance=0.003, open_position=0.5, speed=0.2, slow_speed=0.1, max_speed=1.0, grasp_check=False, missed_reading=0.75, park='work', floor_z=-0.0627)
+[arm_adapter_node-3] [INFO] [1795674075.214721618] [chess_kinova_arm]: MoveIt is ready.
+[arm_adapter_node-3] [INFO] [1795674075.228876536] [chess_kinova_arm]: end_effector_link: this package's kinematics and MoveIt differ by 0.00 mm.
+[arm_adapter_node-3] [INFO] [1795674075.750868365] [chess_kinova_arm]: Added the table and mount to MoveIt's planning scene.
+[arm_adapter_node-3] [INFO] [1795674090.634260650] [chess_kinova_arm]: arm ready at the WORK pose
+[arm_adapter_node-3] [INFO] [1795674090.634584178] [arm_adapter]: executor prepared: the arm is ready
+[brain_node-1] [INFO] [1795674102.809081540] [chess_brain]: status: wait_human / waiting_human
+[brain_node-1] [INFO] [1795674113.412377783] [chess_brain]: human played e2e4
+[brain_node-1] [INFO] [1795674113.416032953] [chess_brain]: status: thinking / thinking
+[brain_node-1] [INFO] [1795674114.010220266] [chess_brain]: arm_actions: {'id': 407301, 'move': 'g8f6', 'actions': [{'pick': 'g8', 'place': 'f6'}]}
+[brain_node-1] [INFO] [1795674114.013296855] [chess_brain]: status: executing / executing g8f6
+[arm_adapter_node-3] [INFO] [1795674114.043764935] [arm_adapter]: arm_actions: id 407301 move g8f6 (1 action(s))
+[arm_adapter_node-3] [INFO] [1795674114.050409440] [chess_kinova_arm]: action 1/1: g8 (0.197, 0.125) -> f6 (0.297, 0.075)
+[arm_adapter_node-3] [INFO] [1795674129.269207457] [chess_kinova_arm]: g8: fingers closed at 0.80
+[arm_adapter_node-3] [INFO] [1795674167.950727774] [arm_adapter]: arm_done: id 407301 ok
+[brain_node-1] [INFO] [1795674168.008596711] [chess_brain]: robot played g8f6
+[brain_node-1] [INFO] [1795674168.012438552] [chess_brain]: status: wait_human / waiting_human robot move done; waiting for a detection taken after the arm finished
+[vision_adapter_node-2] [WARN] [1795674168.031470745] [vision_adapter]: detection requested (after_robot_move) but no detector is configured
+
+----------------------------------------------------------------------------------------------------
+run 3: block positions before
+----------------------------------------------------------------------------------------------------
+vm:~$ docker exec -it chess bash
+kinova:~/workspaces# cd ~/workspaces/intro-to-robotics-fall-2026-lab-06-algdc/ros2_ws && source install/setup.bash && ros2 run lab06_moveit blocks where
+[WARN] [1795674478.251389322] [lab06_blocks]: Service 'get_planning_scene' is not yet available. Better luck next time!
+block    Gazebo                     planning scene
+block_1  (0.440, -0.168, -0.038)    not in the scene
+block_2  (0.440, 0.012, -0.038)     not in the scene
+block_3  (0.440, 0.192, -0.038)     not in the scene
+
+----------------------------------------------------------------------------------------------------
+run 3: arm_adapter_node alone, grasp_check:=true; command published with
+  ros2 topic pub --once /chessbot/arm_actions std_msgs/msg/String "{data: '{\"id\": 1, \"move\": \"a2a4\", \"actions\": [{\"pick\": \"a2\", \"place\": \"a4\"}]}'}"
+----------------------------------------------------------------------------------------------------
+kinova:/chessbot/ros2_ws# ros2 run chess_brain arm_adapter_node --ros-args -p use_sim_time:=true -p executor:=chess_brain.kinova_executor:pick_and_place -p board_x:=0.515 -p board_y:=-0.193 -p board_yaw_deg:=90.0 -p surface_z:=-0.0627 -p open_position:=0.0 -p grasp_check:=true
+[WARN] [1795674732.383035433] [arm_adapter]: preparing the executor now: THE ARM MAY MOVE
+[INFO] [1795674732.392394362] [arm_adapter]: arm_adapter ready: executor chess_brain.kinova_executor:pick_and_place; a1 at (0.490, -0.168, -0.0627), h8 at (0.140, 0.182, -0.0627)
+[INFO] [1795674732.963098334] [chess_kinova_arm]: kinova_executor: Settings(gripper_length=0.157, grip_height=0.02, travel_clearance=0.15, place_clearance=0.003, open_position=0.0, speed=0.2, slow_speed=0.1, max_speed=1.0, grasp_check=True, missed_reading=0.75, park='work', floor_z=-0.0627)
+[INFO] [1795674733.646963116] [chess_kinova_arm]: MoveIt is ready.
+[INFO] [1795674733.650672995] [chess_kinova_arm]: end_effector_link: this package's kinematics and MoveIt differ by 0.00 mm.
+[INFO] [1795674734.154218519] [chess_kinova_arm]: Added the table and mount to MoveIt's planning scene.
+[INFO] [1795674734.564247130] [chess_kinova_arm]: arm ready at the WORK pose
+[INFO] [1795674734.571413158] [arm_adapter]: executor prepared: the arm is ready
+[INFO] [1795674820.310794212] [arm_adapter]: arm_actions: id 1 move a2a4 (1 action(s))
+[INFO] [1795674820.318681470] [chess_kinova_arm]: action 1/1: a2 (0.440, -0.168) -> a4 (0.340, -0.168)
+[INFO] [1795674852.333230720] [chess_kinova_arm]: a2: fingers closed at 0.40
+[ERROR] [1795675074.837070165] [chess_kinova_arm]: Action '/gen3_lite_2f_gripper_controller/gripper_cmd' was unsuccessful: 5
+[INFO] [1795675093.457162306] [arm_adapter]: arm_done: id 1 ok
+
+----------------------------------------------------------------------------------------------------
+run 3: block positions, looked up while the block was being lowered
+----------------------------------------------------------------------------------------------------
+kinova:~/workspaces# cd ~/workspaces/intro-to-robotics-fall-2026-lab-06-algdc/ros2_ws && source install/setup.bash
+kinova:~/workspaces/intro-to-robotics-fall-2026-lab-06-algdc/ros2_ws# ros2 run lab06_moveit blocks where
+[WARN] [1795675047.984520223] [lab06_blocks]: Service 'get_planning_scene' is not yet available. Better luck next time!
+[WARN] [1795675048.486666872] [lab06_blocks]: Service 'get_planning_scene' is not yet available. Better luck next time!
+block    Gazebo                     planning scene
+block_1  (0.340, -0.167, -0.002)    not in the scene
+block_2  (0.440, 0.012, -0.038)     not in the scene
+block_3  (0.440, 0.192, -0.038)     not in the scene
+kinova:~/workspaces/intro-to-robotics-fall-2026-lab-06-algdc/ros2_ws#
+
+----------------------------------------------------------------------------------------------------
+run 4: same node, pick d6 (empty) -> d4
+----------------------------------------------------------------------------------------------------
+[ERROR] [1795675845.514310538] [arm_adapter]: arm_done: id 2 FAILED at action 0: grasp missed at d6: the fingers closed on nothing (reading 0.80); no piece was moved
+
+----------------------------------------------------------------------------------------------------
+run 5: arm_adapter_node with 45 mm squares; actions b3 -> DISCARD, f3 -> b3; block positions after (first lines)
+----------------------------------------------------------------------------------------------------
+block    Gazebo                     planning scene
+block_1  (0.440, -0.168, -0.038)    not in the scene
+block_2  (0.290, 0.012, -0.038)     not in the scene
+block_3  (0.440, 0.012, -0.038)     not in the scene
+kinova:~/workspaces/intro-to-robotics-fall-2026-lab-06-algdc/ros2_ws#
+
+
+
+kinova:/chessbot/ros2_ws# ros2 run chess_brain arm_adapter_node --ros-args -p use_sim_time:=true -p executor:=chess_brain.kinova_executor:pick_and_place -p square_size:=0.045 -p board_x:=0.5525 -p board_y:=-0.0555 -p board_yaw_deg:=90.0 -p surface_z:=-0.0627 -p discard_x:=0.0675 -p discard_y:=0.2625 -p open_position:=0.0 -p grasp_check:=true
+[WARN] [1795676634.330361637] [arm_adapter]: preparing the executor now: THE ARM MAY MOVE
+[INFO] [1795676634.333766701] [arm_adapter]: arm_adapter ready: executor chess_brain.kinova_executor:pick_and_place; a1 at (0.530, -0.033, -0.0627), h8 at (0.215, 0.282, -0.0627)
+[INFO] [1795676634.941390444] [chess_kinova_arm]: kinova_executor: Settings(gripper_length=0.157, grip_height=0.02, travel_clearance=0.15, place_clearance=0.003, open_position=0.0, speed=0.2, slow_speed=0.1, max_speed=1.0, grasp_check=True, missed_reading=0.75, park='work', floor_z=-0.0627)
+[INFO] [1795676635.152472880] [chess_kinova_arm]: MoveIt is ready.
+[INFO] [1795676635.168893194] [chess_kinova_arm]: end_effector_link: this package's kinematics and MoveIt differ by 0.00 mm.
+[INFO] [1795676635.676708287] [chess_kinova_arm]: Added the table and mount to MoveIt's planning scene.
+[INFO] [1795676650.247737457] [chess_kinova_arm]: arm ready at the WORK pose
+[INFO] [1795676650.253850111] [arm_adapter]: executor prepared: the arm is ready
+[INFO] [1795676662.118108890] [arm_adapter]: arm_actions: id 1 move f3b3 (2 action(s))
+[INFO] [1795676662.132532180] [chess_kinova_arm]: action 1/2: b3 (0.440, 0.012) -> DISCARD (0.290, 0.012)
+[INFO] [1795676715.311593928] [chess_kinova_arm]: b3: fingers closed at 0.39
+[ERROR] [1795676943.128914228] [chess_kinova_arm]: Action '/gen3_lite_2f_gripper_controller/gripper_cmd' was unsuccessful: 5
+[INFO] [1795676953.384859338] [chess_kinova_arm]: action 2/2: f3 (0.440, 0.192) -> b3 (0.440, 0.012)
+[INFO] [1795676980.100641924] [chess_kinova_arm]: f3: fingers closed at 0.40
+[ERROR] [1795677165.475252008] [chess_kinova_arm]: Action '/gen3_lite_2f_gripper_controller/gripper_cmd' was unsuccessful: 5
+[INFO] [1795677184.363682015] [arm_adapter]: arm_done: id 1 ok

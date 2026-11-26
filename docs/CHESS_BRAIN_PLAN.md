@@ -361,6 +361,6 @@ The final demo runs on the arm used in Lab 6 and the midterm (Kinova Gen3 Lite, 
 
 Independent review of the first draft (2026-11-25) found four problems that mattered on a real arm; all are fixed and covered by tests: (1) a piece left in the gripper after a failure could be dropped by the next command; (2) finger commands were never verified; (3) nothing stopped a wrong `surface_z` from sending the fingers into the table; (4) after a failed descent the arm could move sideways from among the pieces. The invariants are now: sideways only at the carrying height, the gripper opens only at the gripping height, a gripped piece ends on its target, back on its square, or in the closed gripper with all further moves refused.
 
-chess_brain itself is unchanged. Not yet verified: any of this on ROS 2 (Gazebo), the real arm.
+chess_brain itself is unchanged. Run in Gazebo on 2026-11-26 with the Lab 6 blocks as stand-in pieces (`docs/evidence/2026-11-26_gazebo_executor_moves.txt`); the reach check there says the 400 mm board does not fit (`docs/evidence/2026-11-25_gazebo_reach_check_50mm.txt`). Not yet verified: chess pieces, the real arm.
 
 Open physical questions the code cannot answer: (a) can a top-down Gen3 Lite reach all of a 400 mm board (run `reach_check`); (b) do the open fingers fit between pieces on 50 mm squares (`open_position`); (c) where the camera is mounted at the lab station and whether the parked arm hides the board.

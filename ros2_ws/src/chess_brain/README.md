@@ -22,9 +22,10 @@ Design notes: `docs/CHESS_BRAIN_PLAN.md` at the repo root.
 - [x] `sim_world_node.py` — simulated human + camera + arm: plays a whole game with no hardware
 - [x] `operator_node.py` — the detect button and operator commands, from a terminal
 - [x] `vision_adapter_node.py` / `arm_adapter_node.py` — plug-in points for the real detector and the real arm
-- [x] `kinova_executor.py` / `kinova_arm.py` — pick-and-place for the course's Kinova Gen3 Lite through MoveIt (unit-tested with a fake arm; **not yet run in Gazebo or on the arm**)
+- [x] `kinova_executor.py` / `kinova_arm.py` — pick-and-place for the course's Kinova Gen3 Lite through MoveIt (unit-tested with a fake arm; run in Gazebo with blocks standing in for pieces; **not yet on the real arm**)
 - [x] `reach_check` — asks MoveIt which squares the arm can reach for a given board position
-- [ ] the Kinova executor verified in Gazebo, then on the real arm
+- [x] the Kinova executor run in Gazebo: single move, capture, missed grasp (`docs/evidence/2026-11-26_gazebo_executor_moves.txt`)
+- [ ] the Kinova executor on the real arm, and with real pieces
 - [ ] a real detector plugged in
 
 ## Interface contract
@@ -222,9 +223,15 @@ sequence: above the square → open → straight down → close → straight up 
 carrying height → straight down → open → straight up, then parks at the WORK pose after the last
 action of a move. It runs in Gazebo and on the real arm with the same command, like the labs.
 
-**Status: tested against a simulated arm only (unit tests + a fake MoveIt). Run it in Gazebo before
-the real arm, and on the real arm only with a TA present, one operator, a hand on the emergency
-stop.** Ctrl-C does not stop a motion the arm has already been sent.
+**Status: unit tests, and in Gazebo on 2026-11-26 it moved the Lab 6 blocks as stand-in pieces (a
+single move, a two-action capture, a missed grasp reported as a failure; see
+`docs/evidence/2026-11-26_gazebo_executor_moves.txt`). Never run on the real arm or with chess
+pieces. On the real arm only with a TA present, one operator, a hand on the emergency stop.**
+Ctrl-C does not stop a motion the arm has already been sent.
+
+In Gazebo, start the container from `kinova-jazzy-20260924`: in `kinova-jazzy-latest` (the build
+of 2026-10-15) the simulated gripper does not move
+(`docs/evidence/2026-11-26_gazebo_gripper_image_regression.txt`).
 
 1. Start the arm the way Lab 6 does (Gazebo station or the real arm, then MoveIt), each in its own
    container shell.
@@ -250,7 +257,13 @@ stop.** Ctrl-C does not stop a motion the arm has already been sent.
 
    `#` = reachable for carrying and for gripping, `^` = only at the carrying height, `.` = not at
    all. Move the board until all 64 squares and the discard column are `#` (if that is impossible,
-   the board is too big for this arm and the team has to know now).
+   the board is too big for this arm and the team has to know now). The check takes several
+   minutes and prints its progress.
+
+   Result for the 400 mm board (50 mm squares) as close as the mount plate allows, the command
+   above with `board_x:=0.572`: **54 of 64**; the far rank and two more squares are out of reach
+   (`docs/evidence/2026-11-25_gazebo_reach_check_50mm.txt`). With the gripper straight down this
+   arm covers about 0.15 to 0.52 m from its base axis.
 4. Play, with you as the camera until a detector is plugged in:
 
    ```bash
@@ -264,6 +277,8 @@ stop.** Ctrl-C does not stop a motion the arm has already been sent.
    **The arm moves to WORK as soon as the launch starts.** `grasp_check:=false` is for Gazebo
    without pieces (the fingers close on nothing); leave it on with real pieces. Drop `use_sim_time`
    on the real arm. A move takes roughly a minute at these speeds, hence `arm_timeout:=300`.
+   In Gazebo a move with an object in the gripper took 4 to 5 minutes of wall time (the simulation
+   slows down), so a capture there needs `arm_timeout:=900`.
 
 | Parameter | Default | Meaning |
 |---|---|---|
