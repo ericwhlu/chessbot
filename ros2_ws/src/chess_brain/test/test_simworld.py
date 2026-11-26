@@ -212,6 +212,8 @@ def test_whole_game_with_an_arm_that_fails_every_third_command():
         ("start\n", ("cmd", "start")),
         (" RESET ", ("cmd", "reset")),
         ("retry", ("cmd", "retry")),
+        (" Move  E4D5 \n", ("cmd", "move e4d5")),
+        ("move", ("unknown", "move")),
         ("q", ("quit", "")),
         ("help", ("help", "")),
         (START + "\n", ("fen", START)),

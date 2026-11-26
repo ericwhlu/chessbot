@@ -14,6 +14,7 @@ HELP = """\
     start               start the game without waiting for the start position
     reset               start a new game
     retry               re-send the robot's move after an arm failure / retry the engine
+    move <uci>          answer status ambiguous_move: say which candidate was played (move e4d5)
     <placement FEN>     act as vision yourself: publish this placement on
                         chessbot/detected_fen (e.g. pasted from the detector's web demo)
     help                show this text
@@ -31,6 +32,9 @@ def classify(line: str) -> Tuple[str, str]:
         return "detect", "button"
     if low in COMMANDS:
         return "cmd", low
+    words = low.split()
+    if len(words) == 2 and words[0] == "move":
+        return "cmd", " ".join(words)
     if low in ("q", "quit", "exit"):
         return "quit", ""
     if low in ("h", "help", "?"):

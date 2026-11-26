@@ -29,6 +29,25 @@ Rules (docs/CHESS_BRAIN_PLAN.md §3.3):
 * Whenever the machine needs to know what the board looks like (new game, robot
   move finished, arm failed, retry requested) it emits a ``detect_request`` so
   button-triggered vision does not need a human to press the button for it.
+
+A detection is either a full placement (``on_detection``) or only the set of occupied
+squares (``on_occupancy``, for a detector that cannot tell the pieces apart; see
+occupancy.py). The machine keeps one observation, the latest of either kind. Occupancy is
+weaker evidence, so three rules apply to it only:
+
+* A missing piece looks exactly like a capture by that piece (the pawn in the opponent's
+  hand, or one the detector missed). A capture read from occupancy is therefore applied only
+  after a second frame, requested with ``detect_request`` ``confirm_capture`` and received
+  after that request, shows the same squares. The same holds in RECOVER for "the robot's
+  capture is done": that is the position before it minus the capturing piece.
+* A frame from before ``arm_done`` is trusted only if it shows no change at all: an arm
+  hiding one piece can look like the finished move plus a capture.
+* Moves it cannot tell apart (one piece that can capture on several squares, what a pawn
+  promotes to) give status ``ambiguous_move``; the operator answers with ``move <uci>``.
+
+Occupancy cannot show that the captured piece was really taken away (piece left on the
+square and capturing piece lost look like success): the arm side must check that the target
+square is empty before it places the capturing piece.
 """
 
 from __future__ import annotations
@@ -36,12 +55,13 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, List, Optional, Tuple
+from typing import Any, Callable, FrozenSet, List, Optional, Tuple, Union
 
 import chess
 
 from .actions import UnsupportedMove, actions_payload, move_to_actions
-from .game import GameState, canonical_placement
+from .game import GameState, InferResult, canonical_placement
+from .occupancy import describe_difference, infer_from_occupancy, normalise, squares_of
 
 
 class State(str, Enum):
@@ -56,6 +76,9 @@ class State(str, Enum):
 
 # (topic, payload): "arm_actions" | "status" -> dict; "board_state" | "detect_request" -> str
 Output = Tuple[str, Any]
+
+# What vision reported: a canonical placement FEN, or the names of the occupied squares.
+Observation = Union[str, FrozenSet[str]]
 
 
 @dataclass
@@ -82,7 +105,7 @@ class BrainMachine:
         self._log = log or (lambda msg: None)
 
         self._action_id = int(self.cfg.first_action_id)  # never reset: stale arm_done can't match a new game
-        self._placement: Optional[str] = None  # latest valid detection (canonical)
+        self._placement: Optional[Observation] = None  # latest valid detection (placement or occupancy)
         self._changed_at = 0.0       # when _placement last changed
         self._seen_at: Optional[float] = None  # when any valid detection last arrived
         self._arm_msgs: List[dict] = []
@@ -99,11 +122,28 @@ class BrainMachine:
         if canon is None:
             self._log(f"ignoring malformed detection: {text!r:.80}")
             return False
-        if canon != self._placement:
-            self._placement = canon
+        self._observe(canon, now)
+        return True
+
+    def on_occupancy(self, text: str, now: float) -> bool:
+        """Store a detection that only names the occupied squares: a JSON list such as
+        ``["a1", "b1", ...]``. Returns False (and ignores it) if it is anything else."""
+        try:
+            entries = json.loads(text)
+        except (ValueError, TypeError, RecursionError):
+            entries = None
+        squares = normalise(entries) if isinstance(entries, list) else None
+        if squares is None:
+            self._log(f"ignoring malformed occupancy: {text!r:.80}")
+            return False
+        self._observe(squares, now)
+        return True
+
+    def _observe(self, observation: Observation, now: float) -> None:
+        if observation != self._placement:
+            self._placement = observation
             self._changed_at = now
         self._seen_at = now
-        return True
 
     def on_arm_done(self, text: str, now: float) -> bool:
         """Store an arm_done message: ``{"id": 7, "status": "ok"}`` or ``{"id": 7, "status": "failed", "reason": "..."}``."""
@@ -111,14 +151,14 @@ class BrainMachine:
             msg = json.loads(text)
             done_id = int(msg["id"])
             status = str(msg["status"]).strip().lower()
-        except (ValueError, TypeError, KeyError, OverflowError):
+        except (ValueError, TypeError, KeyError, OverflowError, RecursionError):
             self._log(f"ignoring malformed arm_done: {text!r:.80}")
             return False
         self._arm_msgs.append({"id": done_id, "ok": status == "ok", "reason": str(msg.get("reason", status)), "at": now})
         return True
 
     def on_cmd(self, text: str) -> None:
-        """Queue an operator command: ``start`` | ``reset`` | ``retry``."""
+        """Queue an operator command: ``start`` | ``reset`` | ``retry`` | ``move <uci>``."""
         self._cmds.append(str(text).strip().lower())
 
     # -------------------------------------------------------------------- tick
@@ -165,6 +205,10 @@ class BrainMachine:
             "check": s["in_check"],
             "result": s["result"],
             "move_id": self._action_id,
+            # False from the robot's move until a detection taken after it shows the board in step
+            "verified": self._verified,
+            # the moves status ambiguous_move asks about (cmd: move <uci>); empty otherwise
+            "candidates": [move.uci() for move in self._candidates[1]] if self._candidates else [],
         }
 
     # ---------------------------------------------------------------- internals
@@ -180,6 +224,9 @@ class BrainMachine:
         self._pending_move: Optional[chess.Move] = None
         self._pending_actions: list = []
         self._pending_post: Optional[str] = None
+        self._pending_board: Optional[chess.Board] = None  # the position _pending_post is the placement of
+        self._confirm: Optional[Observation] = None  # occupancy of a capture that waits for its second frame
+        self._candidates: Optional[Tuple[Observation, List[chess.Move]]] = None  # the open ambiguous_move question
         self._sent_at = 0.0
         self._retries = 0
         self._recover_kind = ""
@@ -190,6 +237,8 @@ class BrainMachine:
     def _set(self, state: State, status: str, detail: str = "") -> None:
         if state != self.state:
             self._handled = None
+            self._confirm = None
+            self._candidates = None
         self.state = state
         self._status = status
         self._detail = detail
@@ -209,6 +258,8 @@ class BrainMachine:
             self._detect = "retry"
         elif cmd == "retry" and self.state == State.ERROR and self.game.robot_to_move and not self.game.is_game_over():
             self._start_think(now)
+        elif cmd.split()[:1] == ["move"]:
+            self._answer_ambiguous(cmd, now)
         else:
             self._log(f"ignoring cmd {cmd!r} in state {self.state.value}")
 
@@ -219,6 +270,71 @@ class BrainMachine:
         if now - max(self._changed_at, self._gate) < self.cfg.stable_time:
             return None
         return self._placement
+
+    # What an observation says. A placement names every piece; occupancy only the squares.
+    def _shows(self, observation: Observation, board: chess.Board) -> bool:
+        """Is ``observation`` exactly what a camera sees of ``board``?"""
+        if isinstance(observation, str):
+            return observation == board.board_fen()
+        return observation == squares_of(board)
+
+    def _infer(self, observation: Observation) -> InferResult:
+        """The move of the side to move that turns the current position into ``observation``."""
+        if isinstance(observation, str):
+            return self.game.infer_human_move(observation)
+        return infer_from_occupancy(self.game.board, observation)
+
+    def _difference(self, observation: Observation) -> str:
+        if isinstance(observation, str):
+            return f"detected {observation}"
+        return "squares " + describe_difference(self.game.board, observation)
+
+    def _one_piece_gone(self, observation: Observation) -> bool:
+        """Occupancy that differs from the position only by one emptied square. That is what a
+        capture looks like, and equally one piece that is in a hand or was not detected."""
+        if isinstance(observation, str):
+            return False
+        current = squares_of(self.game.board)
+        return observation < current and len(current - observation) == 1
+
+    def _ask_again(self, observation: Observation, now: float) -> None:
+        """Ask for a second frame; only one received from now on, showing the same squares,
+        confirms ``observation`` (the caller compares it with ``_confirm``)."""
+        self._confirm = observation
+        self._gate = now
+        self._seen_at = None      # the frame in hand cannot confirm itself, whatever its stamp
+        self._handled = None      # the same squares must be looked at again
+        self._detect = "confirm_capture"
+
+    def _human_played(self, move: chess.Move, now: float) -> None:
+        self._log(f"human played {move.uci()}")
+        self.game.apply(move)
+        self._verified = True
+        self._confirm = None
+        self._candidates = None
+        if self.game.is_game_over():
+            self._game_over()
+        else:
+            self._start_think(now)
+
+    def _answer_ambiguous(self, cmd: str, now: float) -> None:
+        """``move <uci>``: the operator says which of the candidate moves was played."""
+        if self.state != State.WAIT_HUMAN or self._candidates is None or self._status != "ambiguous_move":
+            self._log(f"ignoring cmd {cmd!r}: no ambiguous move is waiting for an answer")
+            return
+        observation, moves = self._candidates
+        names = " or ".join(move.uci() for move in moves)
+        words = cmd.split()
+        chosen = [move for move in moves if len(words) == 2 and move.uci() == words[1]]
+        if self._placement != observation:
+            reason = "the board has changed since the question; wait for the new reading"
+        elif not chosen:
+            reason = f"not one of {names}"
+        else:
+            self._human_played(chosen[0], now)
+            return
+        self._log(f"refusing cmd {cmd!r}: {reason}")
+        self._detail = f"the occupied squares fit {names}; send cmd: move <uci> (refused {cmd!r}: {reason})"
 
     def _game_over(self) -> None:
         s = self.game.status()
@@ -238,7 +354,7 @@ class BrainMachine:
         placement = self._stable(now)
         if placement is None or placement == self._handled:
             return
-        if placement == self.game.placement():
+        if self._shows(placement, self.game.board):
             self._begin(now)
         else:
             self._handled = placement
@@ -256,38 +372,43 @@ class BrainMachine:
         # Single-shot vision may detect just BEFORE arm_done arrives. Such a frame is
         # still trustworthy if it already shows the finished robot move (optionally
         # plus one legal human move): an arm in view never produces exactly that.
-        if (
-            not self._verified
-            and self._seen_at is not None
-            and self._seen_at < self._gate
-            and self.game.infer_human_move(self._placement).kind in ("no_change", "move")
-        ):
-            self._gate = self._seen_at
+        # With occupancy an arm hiding one piece does (it reads as a capture), so
+        # there only "the finished robot move, nothing else" is trusted.
+        if not self._verified and self._seen_at is not None and self._seen_at < self._gate:
+            trusted = ("no_change", "move") if isinstance(self._placement, str) else ("no_change",)
+            if self._infer(self._placement).kind in trusted:
+                self._gate = self._seen_at
 
         placement = self._stable(now)
         if placement is None or placement == self._handled:
             return
         self._handled = placement
 
-        result = self.game.infer_human_move(placement)
+        confirmed = placement == self._confirm
+        self._confirm = None
+        self._candidates = None
+        result = self._infer(placement)
         if result.kind == "no_change":
             self._verified = True
             self._status, self._detail = "waiting_human", ""
+        elif result.kind == "move" and self._one_piece_gone(placement) and not confirmed:
+            # Do not act on one frame: ask for another and compare (see the module docstring).
+            self._ask_again(placement, now)
+            self._status = "confirming_capture"
+            self._detail = f"{result.move.uci()}? waiting for a second frame that shows the same squares"
         elif result.kind == "move":
-            move = result.move
-            self._log(f"human played {move.uci()}")
-            self.game.apply(move)
-            self._verified = True
-            if self.game.is_game_over():
-                self._game_over()
-            else:
-                self._start_think(now)
+            self._human_played(result.move, now)
+        elif result.kind == "ambiguous":
+            self._candidates = (placement, result.moves)
+            names = " or ".join(move.uci() for move in result.moves)
+            self._status = "ambiguous_move"
+            self._detail = f"the occupied squares fit {names}; send cmd: move <uci>"
         else:
             # Lifted piece, half-finished castling, illegal move or detector misread.
             # Advisory only: keep waiting for a position we understand.
             what = "illegal_move" if self._verified else "arm_mismatch"
             self._status = what
-            self._detail = f"detected {placement} matches no legal move from {self.game.placement()}"
+            self._detail = f"{self._difference(placement)} matches no legal move from {self.game.placement()}"
 
     # THINKING ---------------------------------------------------------------
     def _supported(self, move: chess.Move) -> bool:
@@ -334,8 +455,9 @@ class BrainMachine:
         self._pending_move = move
         self._pending_actions = actions
         self._pending_post = after.board_fen()
+        self._pending_board = after
         self._retries = 0
-        if self._placement is not None and self._placement != self.game.placement():
+        if self._placement is not None and not self._shows(self._placement, self.game.board):
             # A newer detection differs from the position the move was computed for
             # (takeback, bumped piece). Do not command the arm onto an unknown board.
             self._enter_recover(now, "board_changed", "board changed while the robot was thinking")
@@ -365,6 +487,7 @@ class BrainMachine:
         self._log(f"robot played {move.uci()}")
         self.game.apply(move)
         self._pending_move, self._pending_actions, self._pending_post = None, [], None
+        self._pending_board = None
         self._gate = gate
         self._verified = verified
         if self.game.is_game_over():
@@ -422,11 +545,17 @@ class BrainMachine:
         if placement is None or placement == self._handled:
             return
         self._handled = placement
+        confirmed = placement == self._confirm
+        self._confirm = None
         move = self._pending_move.uci()
-        if placement == self._pending_post:
+        if self._shows(placement, self._pending_board) and self._one_piece_gone(placement) and not confirmed:
+            # A capture done, or the capturing piece not seen in this frame: look twice.
+            self._ask_again(placement, now)
+            self._detail = f"robot move {move} looks done; waiting for a second frame that shows the same squares"
+        elif self._shows(placement, self._pending_board):
             # The move is physically done (arm finished late, or a human completed it).
             self._complete_robot_move(gate=self._gate, verified=True)
-        elif placement == self.game.placement():
+        elif self._shows(placement, self.game.board):
             # Nothing moved, so sending the full action list is safe. Automatic only
             # after an explicit failure (after a timeout the arm may still be about
             # to execute the first copy) or when the arm was never commanded.

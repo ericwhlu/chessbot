@@ -1,0 +1,119 @@
+Date: Wed 2026-11-25 (America/New_York)
+Machine: David's Mac (M1 Pro), Docker Desktop, image chessbot-jazzy-sim built from
+         docker/jazzy-sim/Dockerfile (ros:jazzy-ros-base, linux/arm64, ROS 2 Jazzy; dependencies installed
+         by chess_brain/scripts/setup_deps.sh and chessbot_sim_ros/scripts/setup_sim_deps.sh).
+         NOT the course image and NOT the VM: that run is still to be done.
+Branch:  worktree at origin/feature/mujoco-vision @ 36f5b90 plus the uncommitted work of this day
+         (chess_brain occupancy input, chessbot_sim/world.py, ros2_ws/src/chessbot_sim_ros).
+Test:    a game in the MuJoCo simulation over ROS 2, robot white, scan_mode on_request:
+           colcon build --symlink-install --packages-select chess_brain chessbot_sim_ros
+           ros2 launch chessbot_sim_ros mujoco_game.launch.py repo_root:=/chessbot plies:=12 robot_color:=white scan_mode:=on_request seed:=5 out_dir:=/out/ros_game_white
+         brain_node (chess rules, Stockfish, turn logic) and mujoco_world_node (MuJoCo camera through the
+         AprilTag + YOLO perception, the arm, a simulated opponent and operator) on the chessbot/* topics.
+         Offscreen rendering through EGL.
+
+Result: PASS. 12 plies played; launch exit code 0, both nodes shut down cleanly.
+        robot moves:  6  (arm did it, camera confirmed: 6; finished by the operator: 0)
+        human moves:  6  (camera inferred the move: 6; ambiguous, operator confirmed: 0; not recognised: 0)
+        Ground truth (MuJoCo, evaluation only): the pieces matched the game after every ply: True.
+        Moves: g1f3 h7h6 e2e4 d7d5 e4d5 h6h5 f1b5 d8d7 b5d7 c8d7 f3g5 h5h4
+        Before the launch, in the same container (/usr/bin/python3): pytest chess_brain 333 passed,
+        chessbot_sim_ros 51 passed, chessbot_sim/test_gameplay.py 11 passed; pip check clean.
+
+Not yet run: the course image on the VM (amd64; EGL there is untested), games longer than 24 plies, a
+        failing arm or an ambiguous capture in the real simulation (both are covered by pytest only),
+        en passant and promotion executed by the arm.
+
+--- full launch output -----------------------------------------------------------------------
+[INFO] [launch]: All log files can be found below /root/.ros/log/2026-11-25-22-52-58-249606-84603cbbfe20-104
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [brain_node-1]: process started with pid [107]
+[INFO] [mujoco_world_node-2]: process started with pid [108]
+[brain_node-1] [INFO] [1795647178.772968836] [chess_brain]: chess_brain ready: engine=Stockfish 16 (/usr/games/stockfish), robot=white, stable_time=0.5s, allow_promotion=False, first arm_actions id=717801
+[brain_node-1] [INFO] [1795647178.855009419] [chess_brain]: status: setup / setup waiting for a stable detection of the start position (or cmd: start)
+[mujoco_world_node-2] [INFO] [1795647178.907391128] [mujoco_world]: loading the MuJoCo scene and the detector from /chessbot ...
+[mujoco_world_node-2] [INFO] [1795647180.192297087] [mujoco_world]: mujoco_world ready: robot=white, plies=12, scan_mode=on_request
+[brain_node-1] [INFO] [1795647181.963162796] [chess_brain]: status: thinking / thinking
+[brain_node-1] [INFO] [1795647182.362476921] [chess_brain]: arm_actions: {'id': 717801, 'move': 'g1f3', 'actions': [{'pick': 'g1', 'place': 'f3'}]}
+[brain_node-1] [INFO] [1795647182.362904421] [chess_brain]: status: executing / executing g1f3
+[mujoco_world_node-2]          arm: g1 -> f3
+[mujoco_world_node-2] [INFO] [1795647188.647029674] [mujoco_world]: arm_done: {"id": 717801, "status": "ok"}
+[brain_node-1] [INFO] [1795647188.653377424] [chess_brain]: robot played g1f3
+[brain_node-1] [INFO] [1795647188.653804299] [chess_brain]: status: wait_human / waiting_human robot move done; waiting for a detection taken after the arm finished
+[mujoco_world_node-2] ply  1  robot  g1f3
+[brain_node-1] [INFO] [1795647189.355110591] [chess_brain]: status: wait_human / waiting_human
+[brain_node-1] [INFO] [1795647191.164167967] [chess_brain]: human played h7h6
+[brain_node-1] [INFO] [1795647191.168083800] [chess_brain]: status: thinking / thinking
+[mujoco_world_node-2] ply  2  human  h7h6
+[brain_node-1] [INFO] [1795647191.562620259] [chess_brain]: arm_actions: {'id': 717802, 'move': 'e2e4', 'actions': [{'pick': 'e2', 'place': 'e4'}]}
+[brain_node-1] [INFO] [1795647191.563066342] [chess_brain]: status: executing / executing e2e4
+[mujoco_world_node-2]          arm: e2 -> e4
+[mujoco_world_node-2] [INFO] [1795647196.230862344] [mujoco_world]: arm_done: {"id": 717802, "status": "ok"}
+[brain_node-1] [INFO] [1795647196.255566344] [chess_brain]: robot played e2e4
+[brain_node-1] [INFO] [1795647196.256624844] [chess_brain]: status: wait_human / waiting_human robot move done; waiting for a detection taken after the arm finished
+[mujoco_world_node-2] ply  3  robot  e2e4
+[brain_node-1] [INFO] [1795647196.958310220] [chess_brain]: status: wait_human / waiting_human
+[brain_node-1] [INFO] [1795647198.766517637] [chess_brain]: human played d7d5
+[brain_node-1] [INFO] [1795647198.769787887] [chess_brain]: status: thinking / thinking
+[mujoco_world_node-2] ply  4  human  d7d5
+[brain_node-1] [INFO] [1795647199.161392929] [chess_brain]: arm_actions: {'id': 717803, 'move': 'e4d5', 'actions': [{'pick': 'd5', 'place': 'DISCARD'}, {'pick': 'e4', 'place': 'd5'}]}
+[brain_node-1] [INFO] [1795647199.161836221] [chess_brain]: status: executing / executing e4d5
+[mujoco_world_node-2]          arm: d5 -> DISCARD
+[mujoco_world_node-2]          arm: e4 -> d5
+[mujoco_world_node-2] [INFO] [1795647208.785090211] [mujoco_world]: arm_done: {"id": 717803, "status": "ok"}
+[brain_node-1] [INFO] [1795647208.854062378] [chess_brain]: robot played e4d5
+[brain_node-1] [INFO] [1795647208.854475211] [chess_brain]: status: wait_human / waiting_human robot move done; waiting for a detection taken after the arm finished
+[mujoco_world_node-2] ply  5  robot  e4d5
+[brain_node-1] [INFO] [1795647209.453907086] [chess_brain]: status: wait_human / waiting_human
+[brain_node-1] [INFO] [1795647211.263210837] [chess_brain]: human played h6h5
+[brain_node-1] [INFO] [1795647211.266761629] [chess_brain]: status: thinking / thinking
+[mujoco_world_node-2] ply  6  human  h6h5
+[brain_node-1] [INFO] [1795647211.652644421] [chess_brain]: arm_actions: {'id': 717804, 'move': 'f1b5', 'actions': [{'pick': 'f1', 'place': 'b5'}]}
+[brain_node-1] [INFO] [1795647211.653078296] [chess_brain]: status: executing / executing f1b5
+[mujoco_world_node-2]          arm: f1 -> b5
+[mujoco_world_node-2] [INFO] [1795647217.745354465] [mujoco_world]: arm_done: {"id": 717804, "status": "ok"}
+[brain_node-1] [INFO] [1795647217.753185174] [chess_brain]: robot played f1b5
+[brain_node-1] [INFO] [1795647217.753676965] [chess_brain]: status: wait_human / waiting_human robot move done; waiting for a detection taken after the arm finished
+[mujoco_world_node-2] ply  7  robot  f1b5
+[brain_node-1] [INFO] [1795647218.464411049] [chess_brain]: status: wait_human / waiting_human
+[brain_node-1] [INFO] [1795647220.160279383] [chess_brain]: human played d8d7
+[brain_node-1] [INFO] [1795647220.166811466] [chess_brain]: status: thinking / thinking
+[mujoco_world_node-2] ply  8  human  d8d7
+[brain_node-1] [INFO] [1795647220.553428842] [chess_brain]: arm_actions: {'id': 717805, 'move': 'b5d7', 'actions': [{'pick': 'd7', 'place': 'DISCARD'}, {'pick': 'b5', 'place': 'd7'}]}
+[brain_node-1] [INFO] [1795647220.553972258] [chess_brain]: status: executing / executing b5d7
+[mujoco_world_node-2]          arm: d7 -> DISCARD
+[mujoco_world_node-2]          arm: b5 -> d7
+[mujoco_world_node-2] [INFO] [1795647235.431716793] [mujoco_world]: arm_done: {"id": 717805, "status": "ok"}
+[brain_node-1] [INFO] [1795647235.455071084] [chess_brain]: robot played b5d7
+[brain_node-1] [INFO] [1795647235.455487626] [chess_brain]: status: wait_human / waiting_human robot move done; waiting for a detection taken after the arm finished
+[mujoco_world_node-2] ply  9  robot  b5d7
+[brain_node-1] [INFO] [1795647236.163304668] [chess_brain]: status: wait_human / waiting_human
+[brain_node-1] [INFO] [1795647237.860703794] [chess_brain]: status: wait_human / confirming_capture c8d7? waiting for a second frame that shows the same squares
+[brain_node-1] [INFO] [1795647238.455209003] [chess_brain]: human played c8d7
+[brain_node-1] [INFO] [1795647238.458465336] [chess_brain]: status: thinking / thinking
+[mujoco_world_node-2] ply 10  human  c8d7
+[brain_node-1] [INFO] [1795647238.852592919] [chess_brain]: arm_actions: {'id': 717806, 'move': 'f3g5', 'actions': [{'pick': 'f3', 'place': 'g5'}]}
+[brain_node-1] [INFO] [1795647238.853045794] [chess_brain]: status: executing / executing f3g5
+[mujoco_world_node-2]          arm: f3 -> g5
+[mujoco_world_node-2] [INFO] [1795647249.367511091] [mujoco_world]: arm_done: {"id": 717806, "status": "ok"}
+[brain_node-1] [INFO] [1795647249.452080966] [chess_brain]: robot played f3g5
+[brain_node-1] [INFO] [1795647249.452551216] [chess_brain]: status: wait_human / waiting_human robot move done; waiting for a detection taken after the arm finished
+[mujoco_world_node-2] ply 11  robot  f3g5
+[brain_node-1] [INFO] [1795647250.061885091] [chess_brain]: status: wait_human / waiting_human
+[brain_node-1] [INFO] [1795647251.957365801] [chess_brain]: human played h5h4
+[brain_node-1] [INFO] [1795647251.961652342] [chess_brain]: status: thinking / thinking
+[mujoco_world_node-2] ply 12  human  h5h4
+[mujoco_world_node-2] [INFO] [1795647252.010597259] [mujoco_world]: finished: 12 plies played
+[mujoco_world_node-2] [INFO] [1795647252.011982259] [mujoco_world]: plies played: 12
+[mujoco_world_node-2] [INFO] [1795647252.012231134] [mujoco_world]: robot moves:  6  (arm did it, camera confirmed: 6; finished by the operator: 0)
+[mujoco_world_node-2] [INFO] [1795647252.012458092] [mujoco_world]: human moves:  6  (camera inferred the move: 6; ambiguous, operator confirmed: 0; not recognised: 0)
+[mujoco_world_node-2] [INFO] [1795647252.012753592] [mujoco_world]: finished: 12 plies played
+[mujoco_world_node-2] [INFO] [1795647252.013010967] [mujoco_world]: final position: rn2kbnr/pppbppp1/8/3P2N1/7p/8/PPPP1PPP/RNBQK2R w KQkq - 0 7
+[mujoco_world_node-2] [INFO] [1795647252.013290842] [mujoco_world]: images and summary.json are in /out/ros_game_white
+[brain_node-1] [INFO] [1795647252.353204676] [chess_brain]: arm_actions: {'id': 717807, 'move': 'd1f3', 'actions': [{'pick': 'd1', 'place': 'f3'}]}
+[brain_node-1] [INFO] [1795647252.353458176] [chess_brain]: status: executing / executing d1f3
+[INFO] [mujoco_world_node-2]: process has finished cleanly [pid 108]
+[INFO] [launch]: process[mujoco_world_node-2] was required: shutting down launched system
+[INFO] [brain_node-1]: sending signal 'SIGINT' to process[brain_node-1]
+[INFO] [brain_node-1]: process has finished cleanly [pid 107]
+[INFO] [launch]: process[brain_node-1] was required: shutting down launched system
