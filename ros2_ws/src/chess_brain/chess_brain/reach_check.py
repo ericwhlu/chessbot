@@ -11,9 +11,13 @@ same heights as kinova_executor, and prints a map of the board:
     ^  only at the carrying height (the arm cannot get down to the piece)
     .  not reachable
 
-"Reachable" means MoveIt finds joint angles for the top-down gripper pose. It is a necessary
-check, not a guarantee that every straight descent can be planned. The exit code is 0 only if
-everything is fully reachable.
+"Reachable" means MoveIt accepts joint angles for the top-down gripper pose: inside the joint
+limits, touching neither the table nor the arm. It is a necessary check, not a guarantee that
+every straight descent can be planned. The exit code is 0 only if everything is fully reachable.
+
+A second line says how many squares have joint angles at all (gen3_lite_kinematics, no collision
+check, no ROS): where the two disagree, the square is within the arm's length but something is
+in the way, or the two models differ.
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ import traceback
 from typing import Callable, Dict, List, Tuple
 
 from .board_frame import FILES, RANKS, Locations
+from .gen3_lite_kinematics import top_down_solutions
 
 Reach = Tuple[bool, bool]  # (at the carrying height, at the gripping height)
 
@@ -75,6 +80,31 @@ def format_reach(table: Dict[str, Reach]) -> List[str]:
     return lines
 
 
+def kinematic_reach(x: float, y: float, z: float) -> bool:
+    """Do joint angles exist for the top-down pose, by this package's own kinematics?"""
+    return bool(top_down_solutions(x, y, z))
+
+
+def compare_with_kinematics(table: Dict[str, Reach], kinematic: Dict[str, Reach]) -> List[str]:
+    """How MoveIt's answer relates to the arm's geometry alone (same keys in both tables)."""
+    squares = [f + r for r in RANKS for f in FILES]
+    full = (True, True)
+    lines = [
+        "  by joint angles alone (no collision check): "
+        f"{sum(kinematic[name] == full for name in squares)} of {len(squares)} squares"
+    ]
+    # compared height by height: (carrying, gripping)
+    blocked = [n for n in table if any(k and not m for m, k in zip(table[n], kinematic[n]))]
+    extra = [n for n in table if any(m and not k for m, k in zip(table[n], kinematic[n]))]
+    if blocked:
+        lines.append("  joint angles exist but MoveIt refuses them: " + " ".join(blocked))
+    if extra:
+        lines.append("  MoveIt accepts but the kinematics here found nothing: " + " ".join(extra))
+    if not blocked and not extra:
+        lines.append("  MoveIt and the kinematics agree on every location, at both heights")
+    return lines
+
+
 def main(args=None) -> None:
     import rclpy
     from rclpy.executors import MultiThreadedExecutor
@@ -101,10 +131,21 @@ def main(args=None) -> None:
                 f"checking the board: a1 at ({a1[0]:.3f}, {a1[1]:.3f}), h8 at ({h8[0]:.3f}, {h8[1]:.3f}), "
                 f"surface z {a1[2]:.4f}; carrying at z {settings.travel_z(a1[2]):.3f}, "
                 f"gripping at z {settings.grip_z(a1[2]):.3f} (end_effector_link in base_link); "
-                f"asking {node.reach_method()}"
+                f"asking {node.reach_method()}. This takes several minutes."
             )
-            table = reach_table(locations, settings.travel_z, settings.grip_z, node.can_reach)
-            print("\n".join(format_reach(table)), flush=True)
+            total = 2 * (len(FILES) * len(RANKS) + 8 + len(locations.spares))
+            checked = [0]
+
+            def can_reach(x: float, y: float, z: float) -> bool:
+                answer = node.can_reach(x, y, z)
+                checked[0] += 1
+                if checked[0] % 16 == 0 or checked[0] == total:
+                    print(f"  ... {checked[0]} of {total} poses checked", flush=True)
+                return answer
+
+            table = reach_table(locations, settings.travel_z, settings.grip_z, can_reach)
+            kinematic = reach_table(locations, settings.travel_z, settings.grip_z, kinematic_reach)
+            print("\n".join(format_reach(table) + compare_with_kinematics(table, kinematic)), flush=True)
             if not any(high or low for high, low in table.values()):
                 print("  NOTHING is reachable: is MoveIt answering? Check its terminal.", flush=True)
             code = 0 if all(reach == (True, True) for reach in table.values()) else 2

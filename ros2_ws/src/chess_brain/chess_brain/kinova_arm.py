@@ -24,12 +24,14 @@ from typing import List, Optional
 
 from geometry_msgs.msg import Pose
 from moveit_msgs.msg import MoveItErrorCodes
-from moveit_msgs.srv import GetPositionFK
+from moveit_msgs.srv import GetPositionFK, GetPositionIK
 from pymoveit2 import GripperCommand, MoveIt2
 from rcl_interfaces.msg import ParameterDescriptor
+from rclpy.duration import Duration
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 
+from .gen3_lite_kinematics import TOP_DOWN, forward, top_down_solutions
 from .kinova_executor import FINGER_CLOSED, LAB_SPEED_LIMIT, TABLE_TOP_Z, Settings
 
 ARM_JOINTS = ["joint_1", "joint_2", "joint_3", "joint_4", "joint_5", "joint_6"]
@@ -37,9 +39,6 @@ GRIPPER_JOINT = "right_finger_bottom_joint"
 GRIPPER_ACTION = "/gen3_lite_2f_gripper_controller/gripper_cmd"
 BASE_LINK = "base_link"
 END_EFFECTOR_LINK = "end_effector_link"
-
-# Gripper pointing straight down, as a quaternion (x, y, z, w).
-TOP_DOWN = (0.0, 1.0, 0.0, 0.0)
 
 # The lab station (from the course's table.py): the arm stands on a 50 mm quick mount bolted to
 # a 12 x 12 x 0.5 inch plate, so base_link is MOUNT_OFFSET above the tabletop.
@@ -65,6 +64,11 @@ SETTING_PARAMETERS = {
 }
 PLAN_TIMEOUT = 30.0        # s for MoveIt to answer one planning request
 EXECUTION_TIMEOUT = 180.0  # s for one motion to finish
+# s MoveIt's solver may spend on one inverse-kinematics request. Whole seconds only: move_group
+# reads just the seconds field of the request's timeout, and 0 means its default of 5 ms.
+IK_TIMEOUT = 1
+IK_SEEDS = 4               # of our own solutions offered to MoveIt for one pose
+IK_UNSEEDED_TRIES = 1      # further requests that leave the whole search to MoveIt
 
 
 def _as_bool(value) -> bool:
@@ -125,6 +129,8 @@ class KinovaArm(Node):
         self._joint_stamp = 0.0
         self.create_subscription(JointState, "/joint_states", self._on_joint_state, 10)
         self._fk_client = self.create_client(GetPositionFK, "compute_fk")
+        self._ik_client = self.create_client(GetPositionIK, "compute_ik")
+        self._ik_found: Optional[bool] = None   # is MoveIt's compute_ik service there? (asked once)
         self.moveit2.max_velocity = 0.1      # never the planner's default, even before the first _run
         self.moveit2.max_acceleration = 0.1
         if hasattr(self.moveit2, "cartesian_avoid_collisions"):
@@ -140,7 +146,6 @@ class KinovaArm(Node):
             self._wait_extra["timeout_sec"] = EXECUTION_TIMEOUT
         if "cancel_on_timeout" in wait_arguments:
             self._wait_extra["cancel_on_timeout"] = True
-        self._has_ik = callable(getattr(self.moveit2, "compute_ik", None))
         self._started = False   # did the last move_to_* send a trajectory to the arm?
 
     # ------------------------------------------------------------ measured state
@@ -205,7 +210,26 @@ class KinovaArm(Node):
             log.error("MoveIt did not return a valid pose for the arm's current state.")
             return False
         log.info("MoveIt is ready.")
+        self._compare_models(state, response.pose_stamped[0].pose.position)
         return True
+
+    def _compare_models(self, state: JointState, moveit_position) -> None:
+        """Log how far this package's kinematics is from MoveIt's for the arm as it stands now.
+        can_reach relies on the two describing the same arm."""
+        log = self.get_logger()
+        try:
+            angles = dict(zip(state.name, state.position))
+            ours = forward([angles[name] for name in ARM_JOINTS])[3]
+            theirs = (moveit_position.x, moveit_position.y, moveit_position.z)
+            gap = sum((a - b) ** 2 for a, b in zip(ours, theirs)) ** 0.5
+        except Exception as error:   # a comparison must never stop the arm from starting
+            log.warning(f"Could not compare this package's kinematics with MoveIt's: {error}")
+            return
+        text = f"{END_EFFECTOR_LINK}: this package's kinematics and MoveIt differ by {1000 * gap:.2f} mm"
+        if gap > 0.002:
+            log.warning(text + " - they do not describe the same arm; do not trust the reach check.")
+        else:
+            log.info(text + ".")
 
     # ------------------------------------------------------------ planning scene
     def add_table(self) -> None:
@@ -294,24 +318,64 @@ class KinovaArm(Node):
             self._step_argument: 0.005,
         }
 
+    def _ik_ready(self) -> bool:
+        if self._ik_found is None:
+            self._ik_found = bool(self._ik_client.wait_for_service(timeout_sec=5.0))
+        return self._ik_found
+
     def reach_method(self) -> str:
-        return "MoveIt inverse kinematics" if self._has_ik else "a full motion plan from the current pose"
+        if self._ik_ready():
+            return "MoveIt's compute_ik (collision-aware), starting from this package's own solutions"
+        return "a full motion plan from the current pose (MoveIt's compute_ik service is not there)"
 
-    def can_reach(self, x: float, y: float, z: float, tries: int = 3) -> bool:
-        """True if MoveIt finds joint angles for the top-down pose at (x, y, z). Nothing moves.
+    def _moveit_ik(self, pose: Pose, seed: Optional[List[float]]) -> bool:
+        """Ask MoveIt for joint angles for ``pose`` that are within the limits and collide with
+        nothing, starting its solver from ``seed`` (None = from the arm's current joint angles)."""
+        request = GetPositionIK.Request()
+        ik = request.ik_request
+        ik.group_name = "arm"
+        ik.avoid_collisions = True
+        ik.ik_link_name = END_EFFECTOR_LINK
+        ik.pose_stamped.header.frame_id = BASE_LINK
+        ik.pose_stamped.header.stamp = self.get_clock().now().to_msg()
+        ik.pose_stamped.pose = pose
+        ik.timeout = Duration(seconds=IK_TIMEOUT).to_msg()
+        ik.robot_state.is_diff = True   # everything not named below stays as it is now
+        if seed is not None:
+            ik.robot_state.joint_state.name = list(ARM_JOINTS)
+            ik.robot_state.joint_state.position = [float(angle) for angle in seed]
+        future = self._ik_client.call_async(request)
+        deadline = time.monotonic() + IK_TIMEOUT + 10.0
+        while not future.done():
+            if time.monotonic() >= deadline:
+                future.cancel()
+                self.get_logger().error("Timed out waiting for MoveIt's IK answer.")
+                return False
+            time.sleep(0.002)
+        try:
+            response = future.result()
+        except Exception as error:
+            self.get_logger().error(f"MoveIt's IK request failed: {error}")
+            return False
+        return response is not None and response.error_code.val == MoveItErrorCodes.SUCCESS
 
-        The IK solver starts from a random guess and can miss a solution that exists, so a "no"
-        is asked again a few times.
+    def can_reach(self, x: float, y: float, z: float) -> bool:
+        """True if MoveIt accepts joint angles for the top-down pose at (x, y, z): inside the
+        joint limits and touching neither the table nor the arm itself. Nothing moves.
+
+        MoveIt's solver, left alone, starts from one guess and gives up after a few milliseconds;
+        it then misses most solutions that exist (the first run in Gazebo marked squares
+        unreachable at random). So the solutions are computed here (gen3_lite_kinematics) and
+        offered to MoveIt as starting points, which it only has to confirm. MoveIt's own search
+        is still asked afterwards, so a mistake in our kinematics cannot hide a reachable pose.
         """
-        for _ in range(tries):
-            if self._has_ik:
-                found = self.moveit2.compute_ik((float(x), float(y), float(z)), TOP_DOWN) is not None
-            else:
-                arguments = self._pose_arguments(x, y, z, cartesian=False)
-                found = self.moveit2.plan(**arguments, **self._plan_extra) is not None
-            if found:
-                return True
-        return False
+        if not self._ik_ready():
+            arguments = self._pose_arguments(x, y, z, cartesian=False)
+            return self.moveit2.plan(**arguments, **self._plan_extra) is not None
+        pose = self._top_down_pose(x, y, z)
+        seeds: List[Optional[List[float]]] = list(top_down_solutions(x, y, z)[:IK_SEEDS])
+        seeds += [None] * IK_UNSEEDED_TRIES
+        return any(self._moveit_ik(pose, seed) for seed in seeds)
 
     # ------------------------------------------------------------------ gripper
     def _move_fingers(self, position: float, timeout: float) -> Optional[float]:
