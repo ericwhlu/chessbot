@@ -92,8 +92,9 @@ def choose(
     faces along the grid for the next time it is gripped.
 
     Rule: the pair with the largest ``min(clearance at pick, clearance at place)``, where a
-    clearance above ``fingers.enough`` counts as ``enough``. Among equals: no turn, then the
-    earlier entries of ``directions`` (along the grid before the diagonals).
+    clearance above ``fingers.enough`` counts as ``enough``. Among equals: no turn, then more
+    room at the roomier end, then the earlier entries of ``directions`` (along the grid before
+    the diagonals).
     """
     best: Optional[Tuple[float, int, int, int]] = None
     chosen = (directions[0], directions[0], -math.inf)
@@ -106,7 +107,8 @@ def choose(
             at_place = clearance(b, place, place_obstacles, fingers)
             worst = min(at_pick, at_place)
             # round so that float noise does not decide between equal options
-            key = (round(min(worst, fingers.enough), 6), -int(turn > 1e-9), -i, -j)
+            roomier = round(min(max(at_pick, at_place), fingers.enough), 6)
+            key = (round(min(worst, fingers.enough), 6), -int(turn > 1e-9), roomier, -i, -j)
             if best is None or key > best:
                 best, chosen = key, (a, b, worst)
     return chosen

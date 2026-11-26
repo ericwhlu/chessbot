@@ -343,6 +343,10 @@ grid, the fingers reach towards the two nearest neighbours and pass a few millim
 turned 45°, they reach towards the diagonal neighbours, which are 1.41 squares away. A 3D study with
 the manufacturer's finger meshes and the piece models (pieces on all eight neighbouring squares) gave
 about 4 to 6 mm along the grid and 8 to 9 mm on the diagonal, on 50 mm and on 40 mm squares alike.
+Those figures are for the opening that suits each case best, not for `open_position`'s default, whose
+width has not been measured. The plan-view model used here is cruder and more pessimistic along the
+grid: with a 40 mm opening on 50 mm squares it gives -2.5 mm (touching) along the grid and about 11 mm
+on the diagonal. Both say the same thing about which direction is better.
 
 So the direction is chosen for every action. chess_brain sends the occupied squares with each command;
 `arm_adapter_node` picks, out of four directions (along a rank, along a file, the two diagonals), the one
@@ -356,8 +360,18 @@ that keeps the open fingers farthest from the other pieces at the pick and at th
 
 The model is a plan view (two rectangles, discs for the pieces) and only ranks directions; it is not a
 collision check. On the diagonal a square stem is held by two corners: round stems would be better.
-The arm's reach does not depend on the direction (the last joint turns about the vertical), so
-`reach_check` needs no change.
+
+Two tool yaws, half a turn apart, open the fingers along the same line. Whether a pose has joint
+angles at all does not depend on the direction, as long as either yaw may be used (the last joint
+turns about the vertical), so `reach_check` needs no change. Whether the arm can get there in a
+straight line from where it is does depend on it: the last joint turns 148° either way and no further.
+For every move `kinova_arm` therefore ranks the two yaws from the measured joint angles: first the
+one the arm can turn to without changing its configuration, and of two such the one that does not end
+within 20° of that limit; if the first cannot be planned and nothing has moved, the second is tried.
+The yaw the gripper already has is kept all the same, even next to the limit: the other one is then
+half a turn away, and MoveIt's straight line does not reliably turn the right way round (on mock
+hardware it stopped after 11 % of such a line). A descent or a lift keeps the yaw the gripper has: it
+never turns among the pieces.
 
 | Parameter of `arm_adapter_node` | Default | Meaning |
 |---|---|---|

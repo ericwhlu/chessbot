@@ -43,12 +43,12 @@ def test_same_squares_as_the_simulation_sees():
     """Frames rendered by the simulation, through the plug-in (image + camera matrix only) and
     through the simulation's own pipeline: the occupied squares must be the same, and they must
     be the squares the pieces really stand on."""
+    from chessbot_sim_ros.paths import use_repo
+
+    use_repo()                      # before mujoco is imported: it chooses offscreen rendering on Linux
     pytest.importorskip("mujoco")
     cv2 = pytest.importorskip("cv2")
     pytest.importorskip("ultralytics")
-    from chessbot_sim_ros.paths import use_repo
-
-    use_repo()
     from chess_brain.occupancy import squares_of
     from chessbot_sim.world import MujocoWorld
 

@@ -43,6 +43,7 @@ here depends on where the board is. What must be tuned on the real arm are the n
 
 from __future__ import annotations
 
+import inspect
 import math
 import threading
 from dataclasses import dataclass
@@ -133,6 +134,7 @@ class PickPlace:
         self._s = settings or Settings()
         self._log = log or (lambda text: None)
         self._ready = False
+        self._turns = _takes(getattr(arm, "move_to_pose", None), "grip")   # can this arm turn its gripper?
         self._holding: Optional[str] = None  # square whose piece is (or may be) in the closed gripper
         self._low: Optional[tuple] = None    # (x, y, carrying z, grip): the arm may be below carrying height there
         self._over = False                   # the arm is at carrying height over the board (not parked)
@@ -175,6 +177,8 @@ class PickPlace:
         # Lines the fingers open along at the pick and at the place (rad, world frame), chosen by
         # arm_adapter from the squares that are occupied; None = the arm's own default.
         g_pick, g_place = _angle(info.get("pick_grip")), _angle(info.get("place_grip"))
+        if not self._turns:          # an arm written before grip directions existed: its own orientation
+            g_pick = g_place = None
         grips = "" if g_pick is None and g_place is None else (
             f"; fingers open along {_degrees(g_pick)} at the pick, {_degrees(g_place)} at the place"
         )
@@ -237,9 +241,9 @@ class PickPlace:
         return True if probe is None else bool(probe())
 
     def _pose(self, x: float, y: float, z: float, grip: Optional[float], then_z: Optional[float] = None, **how) -> bool:
-        """One pose move. The grip direction is only handed on when there is one, so an arm
-        written before grip directions existed keeps working."""
-        if grip is None:
+        """One pose move. The grip direction is only handed on when there is one and the arm
+        takes it, so an arm written before grip directions existed keeps working."""
+        if grip is None or not self._turns:
             return bool(self._arm.move_to_pose(x, y, z, **how))
         return bool(self._arm.move_to_pose(x, y, z, grip=grip, then_z=then_z, **how))
 
@@ -362,6 +366,15 @@ class PickPlace:
         if self._rise():
             self._park()
         return f"{reason}; the piece was put back on {pick_name}"
+
+
+def _takes(function, keyword: str) -> bool:
+    """Does ``function`` accept ``keyword``?"""
+    try:
+        parameters = inspect.signature(function).parameters
+    except (TypeError, ValueError):
+        return False
+    return keyword in parameters or any(p.kind is p.VAR_KEYWORD for p in parameters.values())
 
 
 def _angle(value) -> Optional[float]:

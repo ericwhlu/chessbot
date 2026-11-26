@@ -32,7 +32,7 @@ from rclpy.duration import Duration
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 
-from .gen3_lite_kinematics import forward, grip_yaws, rank_yaws, top_down_quaternion, top_down_solutions
+from .gen3_lite_kinematics import forward, grip_yaws, top_down_quaternion, top_down_solutions, yaw_candidates
 from .kinova_executor import FINGER_CLOSED, LAB_SPEED_LIMIT, TABLE_TOP_Z, Settings
 
 ARM_JOINTS = ["joint_1", "joint_2", "joint_3", "joint_4", "joint_5", "joint_6"]
@@ -319,7 +319,8 @@ class KinovaArm(Node):
         None keeps the Lab 6 orientation (fingers opening along y). Either of two tool yaws half a
         turn apart gives that line; the one nearer to where the arm is gets tried first.
         ``then_z``: the tool will next be lowered to this height at the same x, y, so a yaw is
-        preferred that has joint angles there as well.
+        preferred that has joint angles there as well. A straight move without ``then_z`` is a
+        descent or a lift and keeps the yaw the tool has.
 
         cartesian=True moves in a straight line, and only if the whole line can be planned. If a
         straight-line motion fails while executing (e.g. it touched something) it is not retried.
@@ -340,15 +341,11 @@ class KinovaArm(Node):
     def _yaw_candidates(
         self, x: float, y: float, z: float, grip: Optional[float], cartesian: bool, then_z: Optional[float] = None
     ) -> List[float]:
-        """The tool yaws to try, best first (gen3_lite_kinematics.rank_yaws, from the measured
-        joint angles). A straight line gets one candidate only: if that line cannot be planned,
-        the caller decides what to do next."""
-        if grip is None:
-            return [0.0]
+        """The tool yaws to try, best first (gen3_lite_kinematics.yaw_candidates, from the measured
+        joint angles)."""
         measured = [self._joint_positions.get(name) for name in ARM_JOINTS]
         joints = measured if all(value is not None for value in measured) else None
-        yaws = rank_yaws(x, y, z, float(grip), joints, then_z, self._yaw)
-        return yaws[:1] if cartesian else yaws
+        return yaw_candidates(x, y, z, grip, joints, then_z, self._yaw, cartesian)
 
     def _pose_arguments(self, x: float, y: float, z: float, cartesian: bool, yaw: float = 0.0) -> dict:
         return {

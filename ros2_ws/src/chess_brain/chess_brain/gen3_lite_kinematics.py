@@ -64,6 +64,7 @@ def grip_yaws(grip: float) -> Tuple[float, float]:
 WORK = (0.40, 0.02, 2.27, -1.57, -0.84, 1.97)
 
 POSITION_TOLERANCE = 2e-5   # m
+WRIST_MARGIN = 0.35         # rad: a yaw that leaves the last joint this close to its limit is the second choice
 ROTATION_TOLERANCE = 1e-4   # rad
 
 
@@ -250,30 +251,80 @@ def rank_yaws(
     """The two tool yaws that open the fingers along ``grip``, the better one first.
 
     With the arm's present ``joints`` the better one is the yaw it can turn to without leaving its
-    configuration and its joint limits, and of two such the one with the smaller joint motion: the
-    last joint turns the gripper, and only one of the two yaws may lie inside its range. ``then_z``
-    (the height the tool is lowered to next, same x and y) must be reachable the same way.
+    configuration and its joint limits: the last joint turns the gripper, and only one of the two
+    yaws may lie inside its range. ``then_z`` (the height the tool is lowered to next, same x and
+    y) must be reachable the same way. Of two such yaws, the one that does not end next to the
+    last joint's limit, then the one with the smaller joint motion. ``previous_yaw``, the yaw the
+    gripper has now, is never put second for ending next to the limit: the other yaw is then half
+    a turn away, and a straight-line motion cannot be relied on to turn the right way round
+    (seen with MoveIt: it stopped after 11 % of such a line).
     Without ``joints`` the yaw nearer to ``previous_yaw`` comes first, and a yaw with no joint
     solution at all goes last.
     """
     yaws = list(grip_yaws(float(grip)))
 
-    def cost(yaw: float):
+    def from_here(yaw: float):
+        """(next to the wrist limit?, joint motion) if the arm can turn to ``yaw`` without leaving
+        its configuration, else None."""
+        if joints is None:
+            return None
         rotation = top_down_rotation(yaw)
-        if joints is not None:
-            near = nearest_solution((x, y, z), rotation, joints)
-            if near is not None and then_z is not None and nearest_solution((x, y, then_z), rotation, near[1]) is None:
-                near = None
-            if near is not None:
-                return (0, near[0])
-        reachable = bool(top_down_solutions(x, y, z, yaw)) and (
+        near = nearest_solution((x, y, z), rotation, joints)
+        if near is None:
+            return None
+        if then_z is not None and nearest_solution((x, y, then_z), rotation, near[1]) is None:
+            return None
+        # the last joint turns the gripper: ending next to its limit leaves no room for the next
+        # move, so such a yaw is taken only if the other one is no better
+        cramped = JOINT_LIMITS[5] - abs(near[1][5]) < WRIST_MARGIN
+        keeps = previous_yaw is not None and abs(math.sin((yaw - previous_yaw) / 2.0)) < 1e-6
+        return (int(cramped and not keeps), near[0])
+
+    def turn(yaw: float) -> float:
+        if previous_yaw is None:
+            return 0.0
+        return abs(math.atan2(math.sin(yaw - previous_yaw), math.cos(yaw - previous_yaw)))
+
+    def anywhere(yaw: float) -> bool:   # a search from many starting guesses: about a second
+        return bool(top_down_solutions(x, y, z, yaw)) and (
             then_z is None or bool(top_down_solutions(x, y, then_z, yaw))
         )
-        turn = 0.0
-        if previous_yaw is not None:
-            turn = abs(math.atan2(math.sin(yaw - previous_yaw), math.cos(yaw - previous_yaw)))
-        # reachable only by another configuration (1), or not at all (2)
-        return (1 if reachable else 2, turn)
 
-    yaws.sort(key=cost)
-    return yaws
+    near = [from_here(yaw) for yaw in yaws]
+    if any(found is not None for found in near):
+        # a yaw the arm can turn to comes before one it cannot: no need to search for the latter
+        costs = [(0,) + found if found is not None else (1, 0, turn(yaw)) for yaw, found in zip(yaws, near)]
+    else:
+        # reachable only by another configuration (1), or not at all (2)
+        costs = [(1 if anywhere(yaw) else 2, 0, turn(yaw)) for yaw in yaws]
+    return [yaws[i] for i in sorted(range(len(yaws)), key=lambda i: costs[i])]
+
+
+def yaw_candidates(
+    x: float,
+    y: float,
+    z: float,
+    grip: Optional[float],
+    joints: Optional[Sequence[float]] = None,
+    then_z: Optional[float] = None,
+    previous_yaw: Optional[float] = None,
+    straight: bool = False,
+) -> List[float]:
+    """The tool yaws to try for one pose move, best first.
+
+    * No ``grip``: the one orientation of TOP_DOWN.
+    * A straight move up or down (``straight`` without ``then_z``) from a pose whose yaw already
+      opens the fingers along ``grip``: that yaw and no other. The gripper must never turn while
+      it is low among the pieces.
+    * Otherwise both yaws of the grip line, ranked by ``rank_yaws``. A caller that cannot plan
+      the first may try the second.
+    """
+    if grip is None:
+        return [0.0]
+    yaws = list(grip_yaws(float(grip)))
+    if straight and then_z is None and previous_yaw is not None:
+        same = [yaw for yaw in yaws if abs(math.sin((yaw - previous_yaw) / 2.0)) < 1e-6]
+        if same:
+            return same
+    return rank_yaws(x, y, z, float(grip), joints, then_z, previous_yaw)
+

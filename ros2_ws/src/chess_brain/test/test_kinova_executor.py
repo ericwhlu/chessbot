@@ -682,6 +682,21 @@ def test_without_a_grip_direction_the_arm_is_called_as_before():
     assert all(g[4] is None for g in arm.grips)
 
 
+def test_an_arm_that_cannot_turn_its_gripper_makes_the_move_its_own_way():
+    class OldArm(FakeArm):   # no ``grip`` keyword, and the command carries grip directions
+        def move_to_pose(self, x, y, z, cartesian=False, speed=0.1):
+            return super().move_to_pose(x, y, z, cartesian, speed)
+
+    arm = OldArm(pieces=(PICK, PLACE))
+    runner = PickPlace(arm, S)
+    assert runner(PICK, (0.30, 0.10, SURFACE), dict(GRIP_INFO, last=False)) is None
+    # the next action starts where this one ended and names another direction: nothing to turn,
+    # so no move on the spot either
+    second = dict(INFO, pick="e4", place="e6", pick_grip=math.pi / 2, place_grip=math.pi / 2)
+    assert runner((0.30, 0.10, SURFACE), (0.40, 0.10, SURFACE), second) is None
+    assert arm.violations == [] and all(g[4] is None for g in arm.grips)
+
+
 def test_a_grip_direction_that_is_not_a_number_is_ignored():
     arm = FakeArm()
     assert PickPlace(arm, S)(PICK, PLACE, dict(INFO, pick_grip="north", place_grip=float("nan"))) is None

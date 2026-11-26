@@ -111,6 +111,34 @@ def test_the_piece_is_turned_by_a_quarter_or_not_at_all():
         assert min(clear, Fingers().enough) >= min(no_turn, Fingers().enough) - 1e-9
 
 
+def test_a_turn_that_is_not_a_quarter_is_not_made_even_when_it_would_be_roomier():
+    # only two directions on offer, 45 degrees apart. At the pick the diagonal is tight (2.5 mm),
+    # at the place the rank is blocked: the roomiest pair would be (0, 45), a turn of 45 degrees
+    pick, place = xy("d4"), xy("g6")
+    step = 0.055 / math.sqrt(2.0)
+    pick_others = [(pick[0] + step, pick[1] + step)]
+    place_others = [xy("f6"), xy("h6")]
+    a, b, clear = choose(pick, pick_others, place, place_others, directions=(0.0, 45.0))
+    assert (a, b) == (45.0, 45.0)
+    assert clear == pytest.approx(0.055 - 0.040 - 0.0125)
+    # the forbidden pair really is the roomier one
+    forbidden = min(clearance(0.0, pick, pick_others), clearance(45.0, place, place_others))
+    assert forbidden > clear + 0.005
+
+
+def test_among_equally_tight_choices_the_roomier_other_end_wins():
+    # 40 mm squares, e7 to e5 with a piece on d4: both diagonals are equally tight at the pick,
+    # but at the place one of them points at d4
+    def at(name):
+        return ((ord(name[0]) - ord("a") + 0.5) * 0.04, (int(name[1]) - 0.5) * 0.04)
+
+    start = [f + r for r in "1278" for f in "abcdefgh"]
+    obstacles = [at(n) for n in start if n != "e7"] + [at("d4")]
+    a, b, _ = choose(at("e7"), obstacles, at("e5"), obstacles)
+    assert (a, b) == (135.0, 135.0)
+    assert clearance(135.0, at("e5"), obstacles) > clearance(45.0, at("e5"), obstacles) + 0.02
+
+
 def test_a_quarter_turn_is_used_when_it_helps():
     # at the pick the rank is crowded, at the place the file is: open along the file, then the rank
     pick_others = [xy("c4"), xy("e4")]
@@ -172,6 +200,23 @@ def test_grips_can_be_switched_off():
     assert "pick_grip" not in seen[0]
 
 
+def on_line(angle, degrees):
+    """Is ``angle`` (rad) the line at ``degrees``? A line has no sign: 180 is 0."""
+    return abs(math.sin(angle - math.radians(degrees))) < 1e-9
+
+
+@pytest.mark.parametrize("board_yaw, world", [(0.0, 90.0), (30.0, 120.0), (90.0, 0.0), (-60.0, 30.0)])
+def test_the_board_yaw_is_added_to_the_direction(board_yaw, world):
+    # rook d4 beside a pawn on e4, going to d8 beside the king on e8: at both ends the fingers must
+    # open along the file, board direction 90. In the world that is 90 degrees + the board's yaw.
+    seen, executor = recorder()
+    locations = Locations(frame=BoardFrame(origin_x=0.6, origin_y=-0.2, yaw=math.radians(board_yaw)))
+    payload = command("4k3/8/8/8/3RP3/8/8/4K3 w - - 0 1", "d4d8")
+    assert run_command(payload, locations, executor)["status"] == "ok"
+    assert on_line(seen[0]["pick_grip"], world) and on_line(seen[0]["place_grip"], world)
+    assert seen[0]["grip_clearance"] == pytest.approx(plan_grips(payload, Locations())[0][2])   # yaw changes no distance
+
+
 def test_the_executor_gets_world_frame_angles():
     # board turned by 90 degrees: a direction along the board's diagonal is 45 + 90 in the world
     seen, executor = recorder()
@@ -204,20 +249,64 @@ def test_filled_discard_slots_are_in_the_way_too():
     fen = "4k3/8/8/3p4/4P3/8/8/4K3 w - - 0 1"
     grips = plan_grips(command(fen, "e4d5"), locations)
     # the fourth slot has neighbours along the column (board +Y): put the piece down opening across it
-    assert math.degrees(grips[0][1]) % 180.0 == 0.0
+    assert on_line(grips[0][1], 0.0)
+
+    # slots laid out in a row along board -X instead: with nothing in them the fingers open along
+    # the row (the default); with the third slot filled they must open across it
+    row = Locations(discard_per_column=1)
+    assert on_line(plan_grips(command(fen, "e4d5"), row)[0][1], 0.0)
+    row.discarded = 3
+    grips = plan_grips(command(fen, "e4d5"), row)
+    assert on_line(grips[0][0], 90.0) and on_line(grips[0][1], 90.0)     # no turn on the way
+    # the second action puts the pawn on d5, far from the discard row: back to the default
+    assert on_line(grips[1][0], 0.0) and on_line(grips[1][1], 0.0)
 
 
-def test_en_passant_castling_and_promotion_get_a_direction_for_every_action():
-    cases = [
-        ("4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1", "e5d6", False, 2),
-        ("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1", "e1g1", False, 2),
-        ("4k3/1P6/8/8/8/8/8/4K3 w - - 0 1", "b7b8q", True, 2),
-    ]
-    for fen, uci, promotion, count in cases:
-        payload = command(fen, uci, allow_promotion=promotion)
-        grips = plan_grips(payload, Locations())
-        assert len(grips) == len(payload["actions"]) == count
-        assert all(math.isfinite(a) and math.isfinite(b) for a, b, _ in grips)
+def test_a_discard_slot_filled_by_one_action_is_in_the_way_of_the_next():
+    # a capture with promotion discards two pieces; with the slots in a row along board -X the
+    # second one is put down right beside the first, so the fingers must open across the row
+    payload = command("3rk3/4P3/8/8/8/8/8/4K3 w - - 0 1", "e7d8q", allow_promotion=True)
+    assert [a["place"] for a in payload["actions"]] == ["DISCARD", "DISCARD", "d8"]
+    grips = plan_grips(payload, Locations(discard_per_column=1))
+    # the pawn on e7 has the king above it on the file: gripped along the rank, then turned by a
+    # quarter on the way, because the rook now stands in the slot beside the one it goes to
+    assert on_line(grips[1][0], 0.0) and on_line(grips[1][1], 90.0)
+
+
+def test_the_pick_and_the_place_each_get_their_own_direction():
+    # knight d4 between pawns on c4 and e4 (open along the file), going to f5 between f4 and f6
+    # (open along the rank): a quarter turn on the way
+    grips = plan_grips(command("4k3/8/5p2/8/2PNPP2/8/8/4K3 w - - 0 1", "d4f5"), Locations())
+    assert on_line(grips[0][0], 90.0) and on_line(grips[0][1], 0.0)
+
+
+def test_a_piece_put_down_by_one_action_is_in_the_way_of_the_next():
+    # long castling: the king lands on c1; the rook then goes to d1, right beside it on the rank
+    grips = plan_grips(command("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1", "e1c1"), Locations())
+    assert on_line(grips[0][0], 0.0) and on_line(grips[0][1], 0.0)       # c1: a1 is two squares away
+    assert on_line(grips[1][0], 90.0) and on_line(grips[1][1], 90.0)     # d1: the king on c1 is next door
+    # short castling: h1 is beside g1 for the king, then g1 is beside both h1 and f1 for the rook
+    grips = plan_grips(command("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1", "e1g1"), Locations())
+    assert all(on_line(a, 90.0) and on_line(b, 90.0) for a, b, _ in grips)
+
+
+def test_a_piece_taken_away_by_one_action_is_out_of_the_way_of_the_next():
+    # en passant: the pawn on d5 stands beside e5 until it is carried off
+    payload = command("4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1", "e5d6")
+    assert payload["actions"] == [{"pick": "d5", "place": "DISCARD"}, {"pick": "e5", "place": "d6"}]
+    grips = plan_grips(payload, Locations())
+    assert on_line(grips[0][0], 90.0)                                    # d5, with e5 beside it on the rank
+    assert on_line(grips[1][0], 0.0) and on_line(grips[1][1], 0.0)       # e5 alone now
+    assert grips[1][2] > 0.05
+
+
+def test_a_promotion_gets_a_direction_for_the_pawn_and_for_the_spare_queen():
+    payload = command("4k3/1P6/8/8/8/8/8/4K3 w - - 0 1", "b7b8q", allow_promotion=True)
+    assert payload["actions"] == [{"pick": "b7", "place": "DISCARD"}, {"pick": "SPARE_Q_W", "place": "b8"}]
+    grips = plan_grips(payload, Locations())
+    assert len(grips) == 2
+    # nothing stands near b7, the discard slot, the spare or b8: the default, with plenty of room
+    assert all(on_line(a, 0.0) and on_line(b, 0.0) and clear > 0.05 for a, b, clear in grips)
 
 
 @pytest.mark.parametrize("bad", ["e2", {"e2": 1}, ["e2", "z9"], [3]])
@@ -297,6 +386,8 @@ def test_solutions_with_a_yaw_reach_the_turned_pose():
     ],
 )
 def test_reach_does_not_depend_on_the_grip_direction(x, y, z, reachable):
+    # "reach" = joint angles exist for one of the two yaws. Whether the arm gets there in a
+    # straight line from where it is, is another question (rank_yaws below).
     for direction in (0.0, 45.0, 90.0, 135.0):
         either = any(K.top_down_solutions(x, y, z, yaw) for yaw in K.grip_yaws(math.radians(direction)))
         assert either is reachable
@@ -368,3 +459,86 @@ def test_a_yaw_with_no_solution_goes_last():
             assert has[K.rank_yaws(x, y, z, grip)[0]]
             return
     pytest.fail("expected a direction for which only one yaw is reachable at this point")
+
+
+@pytest.mark.parametrize(
+    "bx, by, grip, joints",
+    [
+        (0.236, 0.161, 0.0, [-0.1568, -0.5141, 1.6212, -1.5708, -1.0064, -1.7276]),
+        (0.206, -0.029, 45.0, [0.5408, -0.5141, 1.6211, -1.5708, -1.0064, 2.1116]),
+        (0.395, -0.065, 135.0, [-0.1568, -0.5141, 1.6212, -1.5708, -1.0064, -1.7276]),
+    ],
+)
+def test_a_yaw_that_ends_next_to_the_wrist_limit_is_the_second_choice(bx, by, grip, joints):
+    line = math.radians(grip)
+    ends = {}
+    for yaw in K.grip_yaws(line):
+        near = K.nearest_solution((bx, by, TRAVEL_Z), K.top_down_rotation(yaw), joints)
+        assert near is not None                          # the arm can turn to both yaws from here
+        ends[yaw] = near
+    room = {yaw: K.JOINT_LIMITS[5] - abs(found[5]) for yaw, (_, found) in ends.items()}
+    nearer = min(ends, key=lambda yaw: ends[yaw][0])
+    assert room[nearer] < K.WRIST_MARGIN                 # the smaller motion ends at the limit ...
+    first = K.rank_yaws(bx, by, TRAVEL_Z, line, joints, GRIP_Z)[0]
+    assert first != nearer and room[first] > K.WRIST_MARGIN   # ... so the other yaw goes first
+
+
+def test_the_yaw_the_gripper_has_is_kept_even_next_to_the_wrist_limit():
+    # seen with MoveIt on mock hardware, e2 -> e4 with the board along the arm's x axis: keeping the
+    # yaw ends 7 degrees from the limit. The other yaw is half a turn away, and the straight line
+    # that was tried first for it stopped after 11 % (MoveIt turned the tool towards the limit).
+    yaw = math.radians(-45.0)
+    line = math.radians(45.0)
+    joints = K.nearest_solution((0.397, -0.125, 0.251), K.top_down_rotation(yaw), K.WORK)[1]
+    kept = K.nearest_solution((0.397, -0.025, 0.251), K.top_down_rotation(yaw), joints)
+    assert K.JOINT_LIMITS[5] - abs(kept[1][5]) < K.WRIST_MARGIN
+    assert K.rank_yaws(0.397, -0.025, 0.251, line, joints, 0.124, yaw)[0] == pytest.approx(yaw)
+    assert K.yaw_candidates(0.397, -0.025, 0.251, line, joints, 0.124, yaw, straight=True)[0] == pytest.approx(yaw)
+    # when the gripper's yaw is not known (after a joint-space move) the roomier yaw goes first
+    assert K.rank_yaws(0.397, -0.025, 0.251, line, joints, 0.124)[0] != pytest.approx(yaw)
+
+
+def test_the_wide_search_is_skipped_when_the_arm_can_turn_to_one_of_the_yaws(monkeypatch):
+    line = math.radians(90.0)
+    yaw = K.grip_yaws(line)[0]
+    above = K.top_down_solutions(0.35, 0.10, TRAVEL_Z, yaw)[0]
+    monkeypatch.setattr(K, "top_down_solutions", lambda *a, **k: pytest.fail("searched from many starting guesses"))
+    ranked = K.rank_yaws(0.30, -0.05, TRAVEL_Z, line, above, GRIP_Z, yaw)
+    assert sorted(ranked) == sorted(K.grip_yaws(line))
+
+
+# ------------------------------------------------------------- the yaws tried for one pose move
+def test_without_a_grip_direction_the_lab_orientation_is_the_only_candidate():
+    assert K.yaw_candidates(0.35, 0.10, GRIP_Z, None) == [0.0]
+    assert K.yaw_candidates(0.35, 0.10, GRIP_Z, None, None, None, 1.0, straight=True) == [0.0]
+
+
+def test_a_descent_or_a_lift_never_turns_the_gripper():
+    for degrees in (0.0, 45.0, 90.0, 135.0):
+        line = math.radians(degrees)
+        first, second = K.grip_yaws(line)
+        for yaw, other in ((first, second), (second, first)):
+            # joint angles that belong to the OTHER yaw must not talk it into turning
+            for joints in (None, K.top_down_solutions(0.35, 0.10, TRAVEL_Z, other)[0]):
+                got = K.yaw_candidates(0.35, 0.10, GRIP_Z, line, joints, None, yaw, straight=True)
+                assert got == [pytest.approx(yaw)]
+
+
+def test_a_carry_may_try_both_yaws():
+    line = math.radians(90.0)
+    yaw = K.grip_yaws(line)[0]
+    above = K.top_down_solutions(0.35, 0.10, TRAVEL_Z, yaw)[0]
+    both = sorted(K.grip_yaws(line))
+    # a straight line to above another square (the descent comes next): both, the present yaw first
+    got = K.yaw_candidates(0.30, -0.05, TRAVEL_Z, line, above, GRIP_Z, yaw, straight=True)
+    assert sorted(got) == both and got[0] == pytest.approx(yaw)
+    # a free-space move: both
+    assert sorted(K.yaw_candidates(0.30, -0.05, TRAVEL_Z, line, above, None, yaw, straight=False)) == both
+    # a straight move from a yaw that is not on the line (a quarter turn was asked for): both
+    quarter = line + math.pi / 2
+    assert sorted(K.yaw_candidates(0.35, 0.10, TRAVEL_Z, quarter, above, None, yaw, straight=True)) == sorted(
+        K.grip_yaws(quarter)
+    )
+    # after a joint-space move the tool's yaw is not known: both
+    assert sorted(K.yaw_candidates(0.35, 0.10, GRIP_Z, line, above, None, None, straight=True)) == both
+
