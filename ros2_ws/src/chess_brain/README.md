@@ -22,7 +22,10 @@ Design notes: `docs/CHESS_BRAIN_PLAN.md` at the repo root.
 - [x] `sim_world_node.py` — simulated human + camera + arm: plays a whole game with no hardware
 - [x] `operator_node.py` — the detect button and operator commands, from a terminal
 - [x] `vision_adapter_node.py` / `arm_adapter_node.py` — plug-in points for the real detector and the real arm
-- [ ] a real detector and a real pick-and-place plugged in
+- [x] `kinova_executor.py` / `kinova_arm.py` — pick-and-place for the course's Kinova Gen3 Lite through MoveIt (unit-tested with a fake arm; **not yet run in Gazebo or on the arm**)
+- [x] `reach_check` — asks MoveIt which squares the arm can reach for a given board position
+- [ ] the Kinova executor verified in Gazebo, then on the real arm
+- [ ] a real detector plugged in
 
 ## Interface contract
 
@@ -94,6 +97,7 @@ All topics are `std_msgs/String`.
 | `sim_world_node` | stand-in for the human, the camera and the arm, for testing and demos without hardware |
 | `vision_adapter_node` | camera image → your `detect()` function → `/chessbot/detected_fen` |
 | `arm_adapter_node` | `/chessbot/arm_actions` → your `pick_and_place()` function → `/chessbot/arm_done` |
+| `reach_check` | prints which squares the Kinova arm can reach for a board position; the arm does not move |
 
 ## Plugging in the real detector and the real arm
 
@@ -131,7 +135,8 @@ def pick_and_place(pick_xyz, place_xyz, info):
     pick_xyz, place_xyz: (x, y, z) in metres, world frame; z is the board surface.
     info: {"id", "move", "index", "count", "last", "pick", "place"}. When info["last"] is
     True, finish by parking the arm out of the camera's view.
-    Return None/True on success; return False or a reason string, or raise, on failure."""
+    Return None/True on success; return False or a reason string, or raise, on failure
+    (chess_brain.arm_adapter.PlacedButFailed(reason) if the piece arrived all the same)."""
 ```
 
 ```bash
@@ -208,6 +213,90 @@ A single file works as well:
 
 Do not run `arm_adapter_node` and `sim_world_node` together: both answer `arm_actions`. If you restart
 chess_brain, restart `arm_adapter_node` too (it ignores command ids it has already seen).
+
+## Running on the course's Kinova Gen3 Lite
+
+`chess_brain.kinova_executor:pick_and_place` is a ready executor for the arm used in Lab 6 and the
+midterm (Gen3 Lite, MoveIt through `pymoveit2`). It moves a piece with the Lab 6 block-stacking
+sequence: above the square → open → straight down → close → straight up → straight across at the
+carrying height → straight down → open → straight up, then parks at the WORK pose after the last
+action of a move. It runs in Gazebo and on the real arm with the same command, like the labs.
+
+**Status: tested against a simulated arm only (unit tests + a fake MoveIt). Run it in Gazebo before
+the real arm, and on the real arm only with a TA present, one operator, a hand on the emergency
+stop.** Ctrl-C does not stop a motion the arm has already been sent.
+
+1. Start the arm the way Lab 6 does (Gazebo station or the real arm, then MoveIt), each in its own
+   container shell.
+2. Decide where the board is. The frame is the arm's `base_link`: +x forward from the arm, +y to
+   its left, z = 0 at the bottom of the arm's base, which is 0.0627 m above the tabletop. With the
+   board flat on the table, `surface_z` = -0.0627 + the board's thickness (≈ **-0.056** for the
+   6.56 mm board of `docs/board_setup.md`). `board_x`, `board_y` are the a1 corner; `board_yaw_deg`
+   turns the board about z. The examples below use this layout, with the robot playing black:
+
+   ```
+   board_x:=0.60 board_y:=-0.20 board_yaw_deg:=90     (rank 8 towards the arm, rank 1 towards the human)
+   squares: x 0.20 … 0.60, y -0.20 … 0.20;  captured pieces: a column on the table at y = -0.275
+   ```
+
+   `offboard_drop:=0.0066` says the captured pieces and spare queens stand on the table, one board
+   thickness below the squares.
+3. Ask MoveIt which squares are reachable there. Nothing moves:
+
+   ```bash
+   ros2 run chess_brain reach_check --ros-args -p use_sim_time:=true \
+       -p board_x:=0.60 -p board_y:=-0.20 -p board_yaw_deg:=90 -p surface_z:=-0.056 -p offboard_drop:=0.0066
+   ```
+
+   `#` = reachable for carrying and for gripping, `^` = only at the carrying height, `.` = not at
+   all. Move the board until all 64 squares and the discard column are `#` (if that is impossible,
+   the board is too big for this arm and the team has to know now).
+4. Play, with you as the camera until a detector is plugged in:
+
+   ```bash
+   ros2 launch chess_brain robot.launch.py use_sim_time:=true \
+       executor:=chess_brain.kinova_executor:pick_and_place \
+       board_x:=0.60 board_y:=-0.20 board_yaw_deg:=90 surface_z:=-0.056 offboard_drop:=0.0066 \
+       arm_timeout:=300 grasp_check:=false
+   ros2 run chess_brain operator_node           # second shell: paste placement FENs
+   ```
+
+   **The arm moves to WORK as soon as the launch starts.** `grasp_check:=false` is for Gazebo
+   without pieces (the fingers close on nothing); leave it on with real pieces. Drop `use_sim_time`
+   on the real arm. A move takes roughly a minute at these speeds, hence `arm_timeout:=300`.
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `speed` / `slow_speed` | `0.2` / `0.1` | velocity scaling of the moves at carrying height / of the descents and lifts. Above 0.2 is refused unless `use_sim_time` is true |
+| `grip_height` | `0.02` | fingertips above the square when closing on a piece (m) |
+| `travel_clearance` | `0.15` | fingertips above the board while carrying (m); must clear the tallest piece plus the carried one |
+| `place_clearance` | `0.003` | a piece is released this much higher than it was gripped (m) |
+| `open_position` | `0.5` | finger joint when open over the board. 0 = fully open (≈111 mm, wider than a 50 mm square allows); opening ≈ 111 mm × (1 − p/0.8), so 0.5 ≈ 42 mm |
+| `grasp_check` | `true` | check every finger command on the measured finger position: opened before descending, closed on *something*, still holding before the release, opened at the release |
+| `missed_reading` | `0.75` | a finger reading at or above this after closing means "no piece" |
+| `park` | `work` | where the arm waits between moves: `work` or `retract` (it must not hide the board from the camera) |
+| `add_table` | `true` | add the lab table and mount to MoveIt's planning scene |
+| `floor_z` | `-0.0627` | the tabletop; a `surface_z` that would send the fingertips below it is refused |
+| `gripper_length` | `0.157` | fingertips below `end_effector_link` (m), measured in Lab 6 with the fingers fully open |
+
+What the sequence guarantees, whatever fails (each failure is reported on `arm_done` with its reason):
+
+| Failure | What the arm does |
+|---|---|
+| cannot reach or descend onto the piece; gripper does not open or close; fingers close on nothing | lifts straight up, parks: "no piece was moved" |
+| cannot reach or descend onto the target while carrying | puts the piece back on its square, parks |
+| cannot put it back, cannot lift it, or cannot open over the target | stops, **still holding the piece**, and refuses every further move until the gripper is empty: take the piece out, put it back on its square, type `retry` in `operator_node` |
+| the piece slips out on the way | parks and says so |
+| the piece arrived but the arm cannot lift away or park | says so; a discard slot it filled is not reused |
+| a lift fails | the arm stays where it is (never sideways from among the pieces) and lifts first on the next move |
+
+Between squares the arm moves in a straight line at the carrying height; only if MoveIt cannot plan
+that line (or when leaving the parking pose) may it choose its own path.
+
+To be measured on the real arm before a game: `open_position` (the open fingers must fit between
+neighbouring pieces), `grip_height`, `gripper_length` with the fingers at `open_position`, and the
+finger reading with each piece type in the gripper (it must lie between `open_position` and
+`missed_reading`).
 
 ## Run the tests (any machine, no ROS)
 

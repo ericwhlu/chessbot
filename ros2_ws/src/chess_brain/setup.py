@@ -27,6 +27,7 @@ setup(
             "operator_node = chess_brain.operator_node:main",
             "vision_adapter_node = chess_brain.vision_adapter_node:main",
             "arm_adapter_node = chess_brain.arm_adapter_node:main",
+            "reach_check = chess_brain.reach_check:main",
             "chess_cli = chess_brain.cli:main",
         ],
     },

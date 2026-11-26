@@ -14,7 +14,9 @@ those names into coordinates, following docs/board_setup.md:
                   beside the a-file (then a second column, and so on).
 * ``SPARE_Q_W`` / ``SPARE_Q_B`` - spare queens for promotion.
 
-All off-board positions are given in the BOARD frame, so they move with the board.
+All off-board positions are given in the BOARD frame, so they move with the board. They lie
+``offboard_drop`` below the playing surface: 0 if they are on the board's own border, the
+board's thickness if captured pieces are put on the table next to it.
 """
 
 from __future__ import annotations
@@ -77,12 +79,17 @@ class Locations:
     discard_per_column: int = 8           # slots per column before starting the next one
     spares: Dict[str, XY] = field(default_factory=_default_spares)
     discarded: int = 0                    # slots used so far
+    offboard_drop: float = 0.0            # off-board spots are this far below the playing surface (m)
+
+    def _offboard(self, bx: float, by: float) -> XYZ:
+        x, y, z = self.frame.to_world(bx, by)
+        return (x, y, z - self.offboard_drop)
 
     def pick_xyz(self, name: str) -> XYZ:
         """Where to pick up: a square or a spare piece. ``DISCARD`` is not a pick location."""
         key = str(name).strip()
         if key.upper() in self.spares:
-            return self.frame.to_world(*self.spares[key.upper()])
+            return self._offboard(*self.spares[key.upper()])
         if key.upper() == DISCARD:
             raise ValueError("DISCARD is not a pick location")
         return self.frame.world_xyz(key)
@@ -92,7 +99,7 @@ class Locations:
         column, row = divmod(int(index), self.discard_per_column)
         bx = self.discard_first[0] - column * self.discard_step
         by = self.discard_first[1] + row * self.discard_step
-        return self.frame.to_world(bx, by)
+        return self._offboard(bx, by)
 
     def place_xyz(self, name: str, discard_offset: int = 0) -> XYZ:
         """Where to put down: a square, or the next free discard slot (+ ``discard_offset``).

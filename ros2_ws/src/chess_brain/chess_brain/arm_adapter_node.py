@@ -12,7 +12,10 @@ The arm team plugs in ONE function (see arm_adapter.py for its contract). This n
 * a newer command replaces older ones that have not started yet; a repeated id is ignored;
 * the same move re-sent while its first copy is still running is never executed twice: the second
   copy is answered with the first copy's result;
-* ``reset`` on ``chessbot/cmd`` frees the discard slots for a new game.
+* ``reset`` on ``chessbot/cmd`` frees the discard slots for a new game;
+* if the executor function has a ``prepare`` attribute (a function without arguments), it is
+  called once at start-up, before any command: the place to bring the arm up;
+* if it has an ``operator`` attribute, every command on ``chessbot/cmd`` is passed to it.
 
 Do not run this together with sim_world_node: both answer ``arm_actions``.
 """
@@ -20,9 +23,11 @@ Do not run this together with sim_world_node: both answer ``arm_actions``.
 from __future__ import annotations
 
 import json
-import math
+import os
 import queue
+import sys
 import threading
+import traceback
 from concurrent.futures import ThreadPoolExecutor
 
 import rclpy
@@ -33,7 +38,7 @@ from rclpy.node import Node
 from std_msgs.msg import String
 
 from .arm_adapter import make_dry_run_executor, run_command
-from .board_frame import BoardFrame, Locations
+from .board_params import declare_board_parameters, locations_from_parameters
 from .plugins import load_callable
 
 
@@ -46,36 +51,13 @@ class ArmAdapterNode(Node):
 
         self.declare_parameter("executor", "")     # "package.module:function"; empty = dry run
         declare_number("dry_run_time", 1.0)        # s per action in dry-run mode
-        declare_number("board_x", 0.0)             # world position of the board's a1 corner (m)
-        declare_number("board_y", 0.0)
-        declare_number("board_yaw_deg", 0.0)       # rotation of the board about +Z
-        declare_number("surface_z", 0.00656168)    # height of the playing surface (m)
-        declare_number("square_size", 0.05)
-        declare_number("discard_x", -0.075)        # first discard slot, in the board frame (m)
-        declare_number("discard_y", 0.025)
-        declare_number("spare_q_w_x", 0.475)       # spare queens, in the board frame (m)
-        declare_number("spare_q_w_y", 0.025)
-        declare_number("spare_q_b_x", 0.475)
-        declare_number("spare_q_b_y", 0.375)
+        declare_board_parameters(self)             # board_x, board_y, board_yaw_deg, surface_z, ...
 
         def number(name):
             return float(self.get_parameter(name).value)
 
-        frame = BoardFrame(
-            origin_x=number("board_x"),
-            origin_y=number("board_y"),
-            yaw=math.radians(number("board_yaw_deg")),
-            surface_z=number("surface_z"),
-            square=number("square_size"),
-        )
-        self._locations = Locations(
-            frame=frame,
-            discard_first=(number("discard_x"), number("discard_y")),
-            spares={
-                "SPARE_Q_W": (number("spare_q_w_x"), number("spare_q_w_y")),
-                "SPARE_Q_B": (number("spare_q_b_x"), number("spare_q_b_y")),
-            },
-        )
+        self._locations = locations_from_parameters(self)
+        frame = self._locations.frame
 
         spec = str(self.get_parameter("executor").value).strip()
         if spec:
@@ -97,6 +79,11 @@ class ArmAdapterNode(Node):
         self.create_subscription(String, "chessbot/arm_actions", self._on_arm_actions, 10)
         self.create_subscription(String, "chessbot/cmd", self._on_cmd, 10)
         self.create_timer(0.05, self._tick, clock=Clock(clock_type=ClockType.STEADY_TIME))
+
+        prepare = getattr(self._pick_and_place, "prepare", None)
+        if callable(prepare):
+            self.get_logger().warning("preparing the executor now: THE ARM MAY MOVE")
+            self._running = self._pool.submit(self._prepare, prepare)   # commands wait behind it
 
         a1, h8 = frame.world_xyz("a1"), frame.world_xyz("h8")
         self.get_logger().info(
@@ -125,11 +112,29 @@ class ArmAdapterNode(Node):
         self._pending = payload
 
     def _on_cmd(self, msg: String) -> None:
-        if msg.data.strip().lower() == "reset":
+        command = msg.data.strip().lower()
+        if command == "reset":
             self._pending = None
             self._reset_wanted = True   # applied in _tick, never while the worker is using the slots
+        operator = getattr(self._pick_and_place, "operator", None)
+        if callable(operator):
+            try:
+                operator(command)
+            except Exception as exc:
+                self.get_logger().error(f"executor's operator hook failed on '{command}': {exc!r}")
 
     # ---------------------------------------------------------------------- tick
+    def _prepare(self, prepare) -> None:
+        """Runs in the worker thread, once, before the first command."""
+        try:
+            problem = prepare()
+        except Exception as exc:
+            problem = f"{type(exc).__name__}: {exc}"
+        if problem is None or problem is True:
+            self.get_logger().info("executor prepared: the arm is ready")
+        else:
+            self.get_logger().error(f"executor could not prepare: {problem} (it will try again on the first move)")
+
     def _work(self, payload: dict) -> None:
         """Runs in the worker thread."""
 
@@ -184,24 +189,43 @@ class ArmAdapterNode(Node):
             self._running = self._pool.submit(self._work, payload)
 
     # ------------------------------------------------------------------ shutdown
+    def motion_in_progress(self) -> bool:
+        return self._running is not None and not self._running.done()
+
     def shutdown(self) -> None:
         self._stop.set()  # the running pick-and-place finishes; no further action is started
         self._pool.shutdown(wait=False, cancel_futures=True)
 
 
 def main(args=None) -> None:
-    rclpy.init(args=args)
-    node = None
+    code, busy, node = 0, False, None
     try:
+        rclpy.init(args=args)
         node = ArmAdapterNode()
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
+    except BaseException:  # a crash: show it even if we have to leave through os._exit below
+        traceback.print_exc()
+        code = 1
     finally:
-        if node is not None:
-            node.shutdown()
-            node.destroy_node()
-        rclpy.try_shutdown()
+        try:
+            if node is not None:
+                busy = node.motion_in_progress()
+                node.shutdown()
+                node.destroy_node()
+            rclpy.try_shutdown()
+        except Exception:
+            traceback.print_exc()
+            code = code or 1
+        if busy:
+            # The worker thread is still inside the executor (waiting for the arm) and Python would
+            # wait for it forever. Leaving does NOT stop a motion the arm has already been sent.
+            print("arm_adapter: stopped while the arm was moving; exiting without waiting for it", flush=True)
+            sys.stderr.flush()
+            os._exit(code)
+    if code:
+        sys.exit(code)
 
 
 if __name__ == "__main__":

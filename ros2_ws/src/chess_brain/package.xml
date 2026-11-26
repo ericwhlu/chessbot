@@ -14,6 +14,10 @@
   <exec_depend>python3-numpy</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
+  <!-- Only for the Kinova executor (kinova_arm.py, reach_check); all are in the course Kinova image. -->
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>moveit_msgs</exec_depend>
+  <exec_depend>pymoveit2</exec_depend>
   <!-- Not ROS packages: python-chess (pip: chess; no apt package or rosdep key on Ubuntu 24.04) and stockfish (apt). See scripts/setup_deps.sh -->
 
   <test_depend>python3-pytest</test_depend>

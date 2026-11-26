@@ -20,7 +20,13 @@ The executor is the ONE function the arm team writes:
 
         Return None or True on success. Return False, return a string (the reason), or
         raise an exception to report failure; the remaining actions are then skipped.
+        If the piece DID arrive but something failed afterwards (e.g. parking), return
+        ``PlacedButFailed(reason)`` so that a discard slot it now occupies is not reused.
         '''
+
+Two optional attributes on the function are used by arm_adapter_node if present:
+``prepare()`` is called once at start-up, and ``operator(command)`` receives every operator
+command from ``chessbot/cmd`` (``start`` / ``reset`` / ``retry``).
 
 Rules ``run_command`` guarantees to the executor:
 
@@ -39,6 +45,12 @@ from typing import Callable, List, Optional, Tuple
 from .board_frame import DISCARD, Locations, XYZ
 
 Executor = Callable[[XYZ, XYZ, dict], object]
+
+
+class PlacedButFailed(str):
+    """A failure reason for an action whose piece nevertheless reached its place."""
+
+    placed = True
 
 
 def make_dry_run_executor(seconds: float = 1.0, log: Optional[Callable[[str], None]] = None) -> Executor:
@@ -113,6 +125,8 @@ def run_command(payload: dict, locations: Locations, executor: Executor) -> dict
             if place_name.strip().upper() == DISCARD:
                 locations.commit_discard()
             continue
+        if getattr(result, "placed", False) and place_name.strip().upper() == DISCARD:
+            locations.commit_discard()  # the slot is physically occupied even though the action failed
         reason = "executor returned False" if result is False else str(result)
         return {"id": done_id, "status": "failed", "failed_action_index": index, "reason": reason}
     return {"id": done_id, "status": "ok"}

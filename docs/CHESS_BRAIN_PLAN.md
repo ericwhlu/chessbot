@@ -346,3 +346,21 @@ Still no vision or arm code in the repository. To make integration a matter of s
 | 4 | `robot.launch.py`: brain + both adapters | - |
 
 Verified so far: unit tests for the geometry, command execution and image conversion; all three nodes run together through an in-process stand-in for rclpy with two plug-in functions acting on a shared fake table (60 plies, the brain's own `detect_request` after each robot move answered by the vision adapter). Not yet verified: the adapters on real ROS 2, a real camera topic, a real arm.
+
+
+## 15. Target platform fixed: the course's Kinova Gen3 Lite through MoveIt (v0.6, 2026-11-25)
+
+The final demo runs on the arm used in Lab 6 and the midterm (Kinova Gen3 Lite, 6 joints, its own two-finger gripper), driven through ROS 2 + MoveIt (`pymoveit2`) in the course container; Gazebo first, then the same code on the real arm. The MuJoCo simulation on `feature/mujoco-vision` models a different arm (7-joint Gen3 + Robotiq 2F-85) with its own IK and no ROS, so its motion code does not transfer; its vision ideas (AprilTag board localisation, piece detection) do.
+
+| # | Addition | Notes |
+|---|---|---|
+| 1 | `kinova_executor.py`: `pick_and_place` for `arm_adapter_node`, the Lab 6 top-down sequence with heights derived from the board surface | pure logic, tested with a simulated arm that flags unsafe actions |
+| 2 | `kinova_arm.py`: the ROS node behind it (MoveIt2 + gripper + finger reading), adapted from the course's Lab 6 helpers; every motion speed-limited (0.2 max outside simulation), straight lines planned completely and collision-checked, plan/execution timeouts | needs the course container |
+| 3 | `reach_check`: MoveIt IK for all 64 squares, the discard column and the spare queens at the carrying and gripping heights | decides where the board can stand |
+| 4 | `arm_adapter_node`: optional `prepare` and `operator` hooks of the executor; `PlacedButFailed` so a discard slot filled by a failed action is not reused; `offboard_drop` for captured pieces standing on the table | brings the arm to WORK before the first move; `retry` tells the arm its gripper was emptied |
+
+Independent review of the first draft (2026-11-25) found four problems that mattered on a real arm; all are fixed and covered by tests: (1) a piece left in the gripper after a failure could be dropped by the next command; (2) finger commands were never verified; (3) nothing stopped a wrong `surface_z` from sending the fingers into the table; (4) after a failed descent the arm could move sideways from among the pieces. The invariants are now: sideways only at the carrying height, the gripper opens only at the gripping height, a gripped piece ends on its target, back on its square, or in the closed gripper with all further moves refused.
+
+chess_brain itself is unchanged. Not yet verified: any of this on ROS 2 (Gazebo), the real arm.
+
+Open physical questions the code cannot answer: (a) can a top-down Gen3 Lite reach all of a 400 mm board (run `reach_check`); (b) do the open fingers fit between pieces on 50 mm squares (`open_position`); (c) where the camera is mounted at the lab station and whether the parked arm hides the board.
