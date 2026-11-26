@@ -9,6 +9,7 @@ Type in the terminal, then press Enter:
     start               start the game without waiting for the start position
     reset               start a new game
     retry               re-send the robot's move after an arm failure / retry the engine
+    move <uci>          answer status ambiguous_move: say which candidate was played
     <placement FEN>     act as vision yourself: publish this placement on
                         chessbot/detected_fen (e.g. pasted from the detector's web demo)
     help                show this text

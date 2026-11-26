@@ -1,0 +1,152 @@
+Date: Wed 2026-11-25 22:43 (America/New_York)
+Machine: course VM vcm-54426, course Docker image
+         ghcr.io/mems-intro-to-robotics/mems-robotics-toolkit:kinova-jazzy-latest (linux/amd64), ROS 2 Jazzy
+Branch:  feature/sim-game @ e943208
+Test:    the MuJoCo game over ROS 2 in the course container, robot black, scan_mode continuous (the defaults):
+           bash /chessbot/ros2_ws/src/chess_brain/scripts/setup_deps.sh
+           bash /chessbot/ros2_ws/src/chessbot_sim_ros/scripts/setup_sim_deps.sh
+           colcon build --symlink-install --packages-select chess_brain chessbot_sim_ros
+           ros2 launch chessbot_sim_ros mujoco_game.launch.py plies:=12
+         brain_node (chess rules, Stockfish, turn logic) and mujoco_world_node (MuJoCo camera through the
+         AprilTag + YOLO perception, the arm, a simulated opponent and operator) on the chessbot/* topics.
+
+Result: PASS. First run in the course image. Offscreen rendering through EGL works there
+        ("[setup_sim_deps] EGL OK"). 12 plies in about 58 s:
+          - 6 robot moves, all executed by the arm and confirmed by the camera, none finished by the operator;
+            two captures (g6xh5, c6xe5), each as two arm actions with the captured piece to DISCARD first;
+          - 6 opponent moves, all inferred from the occupied squares; the capture b2xe5 was accepted only
+            after a second frame ("confirming_capture");
+          - both nodes exited cleanly.
+Note:   the first colcon build stopped with "can't copy '.../build/chess_brain/launch/robot.launch.py'":
+        ros2_ws/build/chess_brain was left by a build of another branch with --symlink-install. Fixed by
+        rm -rf build/chess_brain install/chess_brain. Not a problem of this branch.
+Not covered here: robot white, scan_mode on_request, a failing arm, an ambiguous capture, video:=true
+        (all only on the Mac or in unit tests); games longer than 12 plies in this image.
+The simulated arm is the 7-joint Kinova Gen3 of chessbot_sim, not the course's Gen3 Lite.
+
+----------------------------------------------------------------------------------------------------
+set-up scripts in a fresh container
+----------------------------------------------------------------------------------------------------
+vm:~/chessbot$ docker run --rm -it -v "$HOME/chessbot:/chessbot" --entrypoint /bin/bash ghcr.io/mems-intro-to-robotics/mems-robotics-toolkit:kinova-jazzy-latest
+kinova:~/workspaces# bash /chessbot/ros2_ws/src/chess_brain/scripts/setup_deps.sh && bash /chessbot/ros2_ws/src/chessbot_sim_ros/scripts/setup_sim_deps.sh
+[setup_deps] installing stockfish with apt-get ...
+Selecting previously unselected package stockfish.
+(Reading database ... 196584 files and directories currently installed.)
+Preparing to unpack .../stockfish_16-1build1_amd64.deb ...
+Unpacking stockfish (16-1build1) ...
+Setting up stockfish (16-1build1) ...
+[setup_deps] installing python-chess for /usr/bin/python3 into /usr/local/lib/python3.12/dist-packages ...
+
+[notice] A new release of pip is available: 26.2.1 -> 26.3
+[notice] To update, run: pip install --upgrade pip
+[setup_deps] python-chess OK for /usr/bin/python3: 1.11.2 /usr/local/lib/python3.12/dist-packages/chess/__init__.py
+[setup_deps] stockfish OK: /usr/games/stockfish
+[setup_sim_deps] installing torch (CPU only) for /usr/bin/python3, keeping numpy==1.26.4 setuptools==68.1.2 ...
+WARNING: Skipping /usr/lib/python3.12/dist-packages/pybind11-2.11.1.dist-info due to invalid metadata entry 'name'
+WARNING: Skipping /usr/lib/python3.12/dist-packages/pybind11-2.11.1.dist-info due to invalid metadata entry 'name'
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+[setup_sim_deps] installing mujoco, ultralytics, opencv, scipy ...
+WARNING: Skipping /usr/lib/python3.12/dist-packages/pybind11-2.11.1.dist-info due to invalid metadata entry 'name'
+WARNING: Skipping /usr/lib/python3.12/dist-packages/pybind11-2.11.1.dist-info due to invalid metadata entry 'name'
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+Creating new Ultralytics Settings v0.0.8 file ✅
+View Ultralytics Settings with 'yolo settings' or at '/root/.config/Ultralytics/settings.json'
+Update Settings with 'yolo settings key=value', i.e. 'yolo settings runs_dir=path/to/dir'. For help see https://docs.ultralytics.com/usage/settings
+[setup_sim_deps] python packages OK for /usr/bin/python3: numpy 1.26.4 mujoco 3.17.0 opencv 4.11.0 torch 2.12.1+cpu ultralytics 8.4.219
+[setup_sim_deps] EGL OK
+
+----------------------------------------------------------------------------------------------------
+ros2 launch chessbot_sim_ros mujoco_game.launch.py plies:=12
+----------------------------------------------------------------------------------------------------
+kinova:/chessbot/ros2_ws# ros2 launch chessbot_sim_ros mujoco_game.launch.py plies:=12
+[INFO] [launch]: All log files can be found below /root/.ros/log/2026-11-26-03-43-31-977652-f2391531010c-551
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [brain_node-1]: process started with pid [563]
+[INFO] [mujoco_world_node-2]: process started with pid [564]
+[brain_node-1] [INFO] [1795664612.838048540] [chess_brain]: chess_brain ready: engine=Stockfish 16 (/usr/games/stockfish), robot=black, stable_time=0.5s, allow_promotion=False, first arm_actions id=461201
+[brain_node-1] [INFO] [1795664612.926489172] [chess_brain]: status: setup / setup waiting for a stable detection of the start position (or cmd: start)
+[mujoco_world_node-2] [INFO] [1795664614.061681777] [mujoco_world]: loading the MuJoCo scene and the detector from /chessbot ...
+[mujoco_world_node-2] [INFO] [1795664615.629657666] [mujoco_world]: mujoco_world ready: robot=black, plies=12, scan_mode=continuous
+[brain_node-1] [INFO] [1795664617.326176738] [chess_brain]: status: wait_human / waiting_human
+[brain_node-1] [INFO] [1795664619.626588711] [chess_brain]: human played e2e3
+[brain_node-1] [INFO] [1795664619.628865141] [chess_brain]: status: thinking / thinking
+[mujoco_world_node-2] ply  1  human  e2e3
+[brain_node-1] [INFO] [1795664620.026501216] [chess_brain]: arm_actions: {'id': 461201, 'move': 'd7d5', 'actions': [{'pick': 'd7', 'place': 'd5'}]}
+[brain_node-1] [INFO] [1795664620.027100434] [chess_brain]: status: executing / executing d7d5
+[mujoco_world_node-2]          arm: d7 -> d5
+[mujoco_world_node-2] [INFO] [1795664623.964403493] [mujoco_world]: arm_done: {"id": 461201, "status": "ok"}
+[brain_node-1] [INFO] [1795664624.026172866] [chess_brain]: robot played d7d5
+[brain_node-1] [INFO] [1795664624.027013376] [chess_brain]: status: wait_human / waiting_human robot move done; waiting for a detection taken after the arm finished
+[mujoco_world_node-2] ply  2  robot  d7d5
+[brain_node-1] [INFO] [1795664624.626308747] [chess_brain]: status: wait_human / waiting_human
+[brain_node-1] [INFO] [1795664626.426590921] [chess_brain]: human played b2b3
+[brain_node-1] [INFO] [1795664626.428499915] [chess_brain]: status: thinking / thinking
+[mujoco_world_node-2] ply  3  human  b2b3
+[brain_node-1] [INFO] [1795664626.826360406] [chess_brain]: arm_actions: {'id': 461202, 'move': 'b8c6', 'actions': [{'pick': 'b8', 'place': 'c6'}]}
+[brain_node-1] [INFO] [1795664626.826793940] [chess_brain]: status: executing / executing b8c6
+[mujoco_world_node-2]          arm: b8 -> c6
+[mujoco_world_node-2] [INFO] [1795664630.745058562] [mujoco_world]: arm_done: {"id": 461202, "status": "ok"}
+[brain_node-1] [INFO] [1795664630.826402393] [chess_brain]: robot played b8c6
+[brain_node-1] [INFO] [1795664630.827171682] [chess_brain]: status: wait_human / waiting_human robot move done; waiting for a detection taken after the arm finished
+[mujoco_world_node-2] ply  4  robot  b8c6
+[brain_node-1] [INFO] [1795664631.426432666] [chess_brain]: status: wait_human / waiting_human
+[brain_node-1] [INFO] [1795664633.226434168] [chess_brain]: human played d1h5
+[brain_node-1] [INFO] [1795664633.228362840] [chess_brain]: status: thinking / thinking
+[mujoco_world_node-2] ply  5  human  d1h5
+[brain_node-1] [INFO] [1795664633.626388951] [chess_brain]: arm_actions: {'id': 461203, 'move': 'e7e5', 'actions': [{'pick': 'e7', 'place': 'e5'}]}
+[brain_node-1] [INFO] [1795664633.626883762] [chess_brain]: status: executing / executing e7e5
+[mujoco_world_node-2]          arm: e7 -> e5
+[mujoco_world_node-2] [INFO] [1795664636.192853573] [mujoco_world]: arm_done: {"id": 461203, "status": "ok"}
+[brain_node-1] [INFO] [1795664636.226297720] [chess_brain]: robot played e7e5
+[brain_node-1] [INFO] [1795664636.227102229] [chess_brain]: status: wait_human / waiting_human robot move done; waiting for a detection taken after the arm finished
+[mujoco_world_node-2] ply  6  robot  e7e5
+[brain_node-1] [INFO] [1795664636.826305452] [chess_brain]: status: wait_human / waiting_human
+[brain_node-1] [INFO] [1795664638.526727909] [chess_brain]: human played b3b4
+[brain_node-1] [INFO] [1795664638.528555113] [chess_brain]: status: thinking / thinking
+[mujoco_world_node-2] ply  7  human  b3b4
+[brain_node-1] [INFO] [1795664638.926447674] [chess_brain]: arm_actions: {'id': 461204, 'move': 'g7g6', 'actions': [{'pick': 'g7', 'place': 'g6'}]}
+[brain_node-1] [INFO] [1795664638.926849330] [chess_brain]: status: executing / executing g7g6
+[mujoco_world_node-2]          arm: g7 -> g6
+[mujoco_world_node-2] [INFO] [1795664642.772414014] [mujoco_world]: arm_done: {"id": 461204, "status": "ok"}
+[brain_node-1] [INFO] [1795664642.826321780] [chess_brain]: robot played g7g6
+[brain_node-1] [INFO] [1795664642.826950969] [chess_brain]: status: wait_human / waiting_human robot move done; waiting for a detection taken after the arm finished
+[mujoco_world_node-2] ply  8  robot  g7g6
+[brain_node-1] [INFO] [1795664643.426367166] [chess_brain]: status: wait_human / waiting_human
+[brain_node-1] [INFO] [1795664645.226684951] [chess_brain]: human played c1b2
+[brain_node-1] [INFO] [1795664645.228539405] [chess_brain]: status: thinking / thinking
+[mujoco_world_node-2] ply  9  human  c1b2
+[brain_node-1] [INFO] [1795664645.626421573] [chess_brain]: arm_actions: {'id': 461205, 'move': 'g6h5', 'actions': [{'pick': 'h5', 'place': 'DISCARD'}, {'pick': 'g6', 'place': 'h5'}]}
+[brain_node-1] [INFO] [1795664645.626941029] [chess_brain]: status: executing / executing g6h5
+[mujoco_world_node-2]          arm: h5 -> DISCARD
+[mujoco_world_node-2]          arm: g6 -> h5
+[mujoco_world_node-2] [INFO] [1795664654.213748090] [mujoco_world]: arm_done: {"id": 461205, "status": "ok"}
+[brain_node-1] [INFO] [1795664654.226151047] [chess_brain]: robot played g6h5
+[brain_node-1] [INFO] [1795664654.226829325] [chess_brain]: status: wait_human / waiting_human robot move done; waiting for a detection taken after the arm finished
+[mujoco_world_node-2] ply 10  robot  g6h5
+[brain_node-1] [INFO] [1795664654.826365205] [chess_brain]: status: wait_human / waiting_human
+[brain_node-1] [INFO] [1795664656.626626255] [chess_brain]: status: wait_human / confirming_capture b2e5? waiting for a second frame that shows the same squares
+[brain_node-1] [INFO] [1795664657.226525259] [chess_brain]: human played b2e5
+[brain_node-1] [INFO] [1795664657.228454866] [chess_brain]: status: thinking / thinking
+[mujoco_world_node-2] ply 11  human  b2e5
+[brain_node-1] [INFO] [1795664657.626364387] [chess_brain]: arm_actions: {'id': 461206, 'move': 'c6e5', 'actions': [{'pick': 'e5', 'place': 'DISCARD'}, {'pick': 'c6', 'place': 'e5'}]}
+[brain_node-1] [INFO] [1795664657.626871500] [chess_brain]: status: executing / executing c6e5
+[mujoco_world_node-2]          arm: e5 -> DISCARD
+[mujoco_world_node-2]          arm: c6 -> e5
+[mujoco_world_node-2] [INFO] [1795664670.566799524] [mujoco_world]: arm_done: {"id": 461206, "status": "ok"}
+[brain_node-1] [INFO] [1795664670.628358138] [chess_brain]: robot played c6e5
+[brain_node-1] [INFO] [1795664670.629099709] [chess_brain]: status: wait_human / waiting_human robot move done; waiting for a detection taken after the arm finished
+[mujoco_world_node-2] ply 12  robot  c6e5
+[mujoco_world_node-2] [INFO] [1795664670.738889200] [mujoco_world]: finished: 12 plies played
+[mujoco_world_node-2] [INFO] [1795664670.739584441] [mujoco_world]: plies played: 12
+[mujoco_world_node-2] [INFO] [1795664670.739880341] [mujoco_world]: robot moves:  6  (arm did it, camera confirmed: 6; finished by the operator: 0)
+[mujoco_world_node-2] [INFO] [1795664670.740152699] [mujoco_world]: human moves:  6  (camera inferred the move: 6; ambiguous, operator confirmed: 0; not recognised: 0)
+[mujoco_world_node-2] [INFO] [1795664670.740425204] [mujoco_world]: finished: 12 plies played
+[mujoco_world_node-2] [INFO] [1795664670.740701222] [mujoco_world]: final position: r1bqkbnr/ppp2p1p/8/3pn2p/1P6/4P3/P1PP1PPP/RN2KBNR w KQkq - 0 7
+[mujoco_world_node-2] [INFO] [1795664670.741032648] [mujoco_world]: images and summary.json are in /chessbot/ros2_ws/game_run_ros
+[brain_node-1] [INFO] [1795664671.226318299] [chess_brain]: status: wait_human / waiting_human
+[INFO] [mujoco_world_node-2]: process has finished cleanly [pid 564]
+[INFO] [launch]: process[mujoco_world_node-2] was required: shutting down launched system
+[INFO] [brain_node-1]: sending signal 'SIGINT' to process[brain_node-1]
+[INFO] [brain_node-1]: process has finished cleanly [pid 563]
+[INFO] [launch]: process[brain_node-1] was required: shutting down launched system
+kinova:/chessbot/ros2_ws#

@@ -100,3 +100,5 @@ Verify the model files exist inside Docker:
 ls -R /chessbot
 
 Check that both chessboard.sdf and chessboard_v1.stl are present.
+
+[MuJoCo vision and contact-only pick-and-place demo](chessbot_sim/README.md)

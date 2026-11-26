@@ -4,15 +4,19 @@ Topics (all ``std_msgs/String``; names are relative, so they can be remapped):
 
   subscribes
     chessbot/detected_fen   piece-placement FEN from vision
+    chessbot/detected_occupancy  JSON list of the occupied squares, e.g. ["a1", "b1", ...], from a
+                            detector that cannot tell the pieces apart (see occupancy.py and the
+                            rules for it in machine.py). A set-up uses one of the two topics.
     chessbot/arm_done       {"id": 7, "status": "ok"} | {"id": 7, "status": "failed", "reason": "..."}
-    chessbot/cmd            start | reset | retry
+    chessbot/cmd            start | reset | retry | move <uci> (answers status ambiguous_move)
   publishes
     chessbot/arm_actions    {"id": 7, "move": "e7e5", "actions": [{"pick": "e7", "place": "e5"}]}
                             NOT latched: a command must never be replayed to an arm that (re)starts
                             later. An arm that missed it shows up as arm_timeout -> RECOVER.
     chessbot/status         {"state": ..., "status": ..., "detail": ..., "fen": ..., ...}   (latched)
     chessbot/board_state    full 6-field FEN after every applied move                       (latched)
-    chessbot/detect_request "setup" | "after_robot_move" | "arm_failed" | "board_changed" | "retry":
+    chessbot/detect_request "setup" | "after_robot_move" | "arm_failed" | "board_changed" | "retry" |
+                            "confirm_capture":
                             the brain asks vision for one fresh detection (same topic the
                             operator's button publishes on, with data "button")
 
@@ -128,6 +132,7 @@ class BrainNode(Node):
             self._pub_detect = self.create_publisher(String, "chessbot/detect_request", 10)
 
             self.create_subscription(String, "chessbot/detected_fen", self._on_detection, DETECTION)
+            self.create_subscription(String, "chessbot/detected_occupancy", self._on_occupancy, DETECTION)
             self.create_subscription(String, "chessbot/arm_done", self._on_arm_done, 10)
             self.create_subscription(String, "chessbot/cmd", self._on_cmd, 10)
 
@@ -151,6 +156,9 @@ class BrainNode(Node):
     # ----------------------------------------------------------------- callbacks
     def _on_detection(self, msg: String) -> None:
         self._machine.on_detection(msg.data, time.monotonic())
+
+    def _on_occupancy(self, msg: String) -> None:
+        self._machine.on_occupancy(msg.data, time.monotonic())
 
     def _on_arm_done(self, msg: String) -> None:
         self._machine.on_arm_done(msg.data, time.monotonic())

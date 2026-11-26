@@ -1,0 +1,10 @@
+{
+  "base_in_board": {"position_m": [0.65, 0.22, 0.018], "yaw_deg": 23},
+  "plate_half_size_xy_m": [0.174, 0.174],
+  "tags": [
+    {"id": 4, "center_xy_m": [-0.132, 0.132], "size_m": 0.055, "rotation_deg": 0},
+    {"id": 5, "center_xy_m": [0.132, 0.132], "size_m": 0.055, "rotation_deg": 0},
+    {"id": 6, "center_xy_m": [0.132, -0.132], "size_m": 0.055, "rotation_deg": 0},
+    {"id": 7, "center_xy_m": [-0.132, -0.132], "size_m": 0.055, "rotation_deg": 0}
+  ]
+}

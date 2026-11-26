@@ -35,12 +35,13 @@ All topics are `std_msgs/String`.
 | Topic | Direction | Payload |
 |---|---|---|
 | `/chessbot/detected_fen` | vision → brain | piece-placement FEN, rank 8 → rank 1, a1 bottom-left in the image, e.g. `rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR` |
+| `/chessbot/detected_occupancy` | vision → brain | alternative to `detected_fen` for a detector that only knows which squares hold a piece: JSON list of square names, e.g. `["a1", "b1", "e4"]`. Use one of the two topics. See `occupancy.py` for what this cannot tell apart |
 | `/chessbot/arm_actions` | brain → arm | `{"id": 7, "move": "e7e5", "actions": [{"pick": "e7", "place": "e5"}], "occupied": ["a1", "a2", …]}`. `occupied` = every square holding a piece before the first action; the arm side may use it to keep the gripper clear of the other pieces, or ignore it |
 | `/chessbot/arm_done` | arm → brain | `{"id": 7, "status": "ok"}` or `{"id": 7, "status": "failed", "reason": "grasp"}` |
-| `/chessbot/status` | brain → anyone | `{"state", "status", "detail", "fen", "expected_placement", "turn", "check", "result", "move_id"}` (latched) |
+| `/chessbot/status` | brain → anyone | `{"state", "status", "detail", "fen", "expected_placement", "turn", "check", "result", "move_id", "verified", "candidates"}` (latched) |
 | `/chessbot/board_state` | brain → anyone | full 6-field FEN after every applied move (latched) |
-| `/chessbot/cmd` | operator → brain | `start` \| `reset` \| `retry` |
-| `/chessbot/detect_request` | button or brain → vision | "please detect once now". `button` from the operator, or the reason from the brain: `setup` \| `after_robot_move` \| `arm_failed` \| `board_changed` \| `retry` |
+| `/chessbot/cmd` | operator → brain | `start` \| `reset` \| `retry` \| `move <uci>` (answers status `ambiguous_move`) |
+| `/chessbot/detect_request` | button or brain → vision | "please detect once now". `button` from the operator, or the reason from the brain: `setup` \| `after_robot_move` \| `arm_failed` \| `board_changed` \| `retry` \| `confirm_capture` |
 
 **Vision**
 - Publishes the placement only; chess_brain owns turn, rules and move selection.
@@ -73,6 +74,10 @@ All topics are `std_msgs/String`.
 
 `setup` · `waiting_human` · `illegal_move` · `arm_mismatch` · `vision_lost` · `thinking` · `executing` ·
 `arm_failed` · `arm_timeout` · `board_changed` · `game_over` · `engine_error` · `unsupported_move`
+
+Only with `detected_occupancy`: `confirming_capture` (a capture is applied after a second frame shows
+the same squares) · `ambiguous_move` (several moves look the same from above; `candidates` lists them,
+answer with `move <uci>`).
 
 ## Parameters
 

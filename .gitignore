@@ -218,3 +218,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local YOLO training outputs
+/.piece-training/
+/yolo11n-pose.pt
+
+# Local demo recording
+/chessbot-perception-camera.mp4
