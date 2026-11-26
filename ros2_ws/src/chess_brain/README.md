@@ -25,8 +25,8 @@ Design notes: `docs/CHESS_BRAIN_PLAN.md` at the repo root.
 - [x] `kinova_executor.py` / `kinova_arm.py` — pick-and-place for the course's Kinova Gen3 Lite through MoveIt (unit-tested with a fake arm; run in Gazebo with blocks standing in for pieces; **not yet on the real arm**)
 - [x] `reach_check` — asks MoveIt which squares the arm can reach for a given board position
 - [x] the Kinova executor run in Gazebo: single move, capture, missed grasp (`docs/evidence/2026-11-26_gazebo_executor_moves.txt`)
-- [x] `grip_direction.py` — the gripper turns to stay clear of the other pieces (run with MoveIt on mock hardware)
-- [x] occupancy on the robot side: `vision_adapter_node` can publish the occupied squares, `arm_adapter_node` can look at the board before it moves
+- [x] `grip_direction.py` — the gripper turns to stay clear of the other pieces (run with MoveIt on mock hardware, not yet in Gazebo: `docs/evidence/2026-11-26_integration_container_runs.txt`)
+- [x] occupancy on the robot side: `vision_adapter_node` can publish the occupied squares, `arm_adapter_node` can look at the board before it moves (run against a simulated camera, same evidence file)
 - [ ] the Kinova executor on the real arm, and with real pieces
 - [ ] a real detector plugged in (the wrapper around the simulation's perception, `chessbot_sim_ros.camera_detector`, has only seen rendered frames)
 

@@ -1,0 +1,454 @@
+Date: Thu 2026-11-26, about 05:40 to 06:10 (America/New_York)
+Machine: MacBook Pro (Apple M1 Pro), Docker Desktop, one linux/arm64 container from the image built by
+         docker/jazzy-moveit/Dockerfile: ROS 2 Jazzy, MoveIt 2.12.4, kortex_description and
+         kinova_gen3_lite_moveit_config 0.2.6, pymoveit2 5.1.0, MuJoCo.
+         NOT the course image and NOT Gazebo. In parts 3 and 4 the arm is ros2_control mock hardware
+         (launch/mock_gen3_lite.launch.py): the joints follow their commands exactly, there is no
+         physics and nothing to grip, so grasp_check is off and "fingers closed at 0.80" means nothing.
+Branch:  feature/integration @ 2bb7d1e (feature/kinova-executor + feature/sim-game merged, then the
+         occupancy vision on the robot side and the grip directions). The repository was mounted
+         read-only; the workspace was built in the container under /tmp/ws.
+Test:    everything that can be run without the course VM, after the merge and after the review fixes.
+
+Result: PASS for everything tried; one defect found by part 3 and fixed (part 4).
+  1. Unit tests, /usr/bin/python3 in the container: chess_brain 643 passed, chessbot_sim_ros 55 passed
+     (one of them compares chessbot_sim_ros.camera_detector with the simulation's own pipeline on frames
+     rendered by MuJoCo). On the Mac: 643 passed; 54 passed and 1 skipped (no MuJoCo in that
+     interpreter); chessbot_sim/test_gameplay.py 11 passed.
+  2. The whole game in MuJoCo over ROS 2 (brain_node + mujoco_world_node), 12 plies, robot black: all 6
+     robot moves made by the arm and confirmed by the camera, all 6 moves of the opponent inferred from
+     the occupied squares, both processes finished cleanly. Same result as before the merge.
+  3. kinova_executor through arm_adapter_node with grip_direction auto, MoveIt on mock hardware, commands
+     published as chess_brain would send them (with the occupied squares). Two board placements:
+     - board turned 90 degrees (the placement of the Gazebo runs): 6 commands, 8 pick-and-place actions,
+       all "arm_done ok", no planning retry, no fallback to a free-space plan. The gripper is turned to
+       the diagonal over crowded squares (e7e5, g8f6, castling), stays along the grid where there is
+       room (b7f3), and makes a quarter turn while carrying (d4f5).
+     - board not turned: 6 commands, 8 actions, all ok, no retry. A seventh command asks for a square
+       that is out of reach in this placement (g1, 0.527 m from the base): the arm picks the king up,
+       finds no way to g1, and reports "could not reach above g1; the piece was put back on e1".
+     A move takes 40 to 50 s, a two-action command 78 to 89 s (speed 0.2 / 0.1, the defaults).
+  4. Found by the first run of part 3 and fixed in 2bb7d1e: carrying e2 -> e4 on the board that is not
+     turned, the yaw the gripper had (-45 degrees) would end 7 degrees from the last joint's limit, so
+     the other yaw of the same line (135 degrees, half a turn away) was tried first. MoveIt's straight
+     line stopped after 11 % of it (three planning attempts, nothing moved); the yaw the gripper had
+     then worked. Now the yaw the gripper has is tried first. The log of that first run is at the end.
+  5. Camera -> vision_adapter_node (chessbot_sim_ros.camera_detector, output occupancy) -> chess_brain
+     -> arm_adapter_node (dry run, check_squares occupancy), all started by robot.launch.py. The camera
+     is a small test node that renders the MuJoCo scene, plays the opponent's moves and moves the pieces
+     the way the dry-run arm says it did.
+     - Three moves by the opponent; the robot answers with a quiet move and two captures. Before the
+       second half of each capture the arm adapter asks for a look, sees the target square empty and
+       goes on: arm_done ok three times.
+     - The captured piece is deliberately left on its square: the second half of the capture does not
+       start ("the camera sees a piece on a6, where the piece from b8 is to go"), chess_brain goes to
+       recover, retries once by itself with the same outcome and then waits for the operator.
+
+Not shown by any of this: Gazebo and the course image (the last Gazebo runs are from before the grip
+directions, see 2026-11-26_gazebo_executor_moves.txt), the real arm, a real camera, real pieces, the
+gripper actually closing on something with the fingers turned. The camera detector has only seen
+frames rendered by the simulation. The lines "process has died ... exit code -9" and the traceback of
+sim_camera at the end of part 5 are the test script stopping the nodes after a fixed time.
+
+Log lines are cut to 200 to 260 characters by the scripts that collected them.
+
+====================================================================================================
+1. Unit tests in the container
+====================================================================================================
+colcon exit 0
+Summary: 2 packages finished [1.75s]
+== chess_brain tests (system python)
+643 passed in 77.59s (0:01:17)
+== chessbot_sim_ros tests
+55 passed in 9.97s
+====================================================================================================
+2. ros2 launch chessbot_sim_ros mujoco_game.launch.py plies:=12  (key lines)
+====================================================================================================
+[brain_node-1] [INFO] [chess_brain]: chess_brain ready: engine=Stockfish 16 (/usr/games/stockfish), robot=black, stable_time=0.5s, allow_promotion=False, first arm_actions id=138401
+[mujoco_world_node-2] [INFO] [mujoco_world]: mujoco_world ready: robot=black, plies=12, scan_mode=continuous
+[brain_node-1] [INFO] [chess_brain]: human played e2e3
+[brain_node-1] [INFO] [chess_brain]: robot played g7g6
+[brain_node-1] [INFO] [chess_brain]: status: wait_human / waiting_human robot move done; waiting for a detection taken after the arm finished
+[brain_node-1] [INFO] [chess_brain]: human played b2b3
+[brain_node-1] [INFO] [chess_brain]: robot played g8f6
+[brain_node-1] [INFO] [chess_brain]: status: wait_human / waiting_human robot move done; waiting for a detection taken after the arm finished
+[brain_node-1] [INFO] [chess_brain]: human played d1h5
+[brain_node-1] [INFO] [chess_brain]: robot played g6h5
+[brain_node-1] [INFO] [chess_brain]: status: wait_human / waiting_human robot move done; waiting for a detection taken after the arm finished
+[brain_node-1] [INFO] [chess_brain]: human played f2f4
+[brain_node-1] [INFO] [chess_brain]: robot played b8c6
+[brain_node-1] [INFO] [chess_brain]: status: wait_human / waiting_human robot move done; waiting for a detection taken after the arm finished
+[brain_node-1] [INFO] [chess_brain]: human played a2a4
+[brain_node-1] [INFO] [chess_brain]: robot played d7d5
+[brain_node-1] [INFO] [chess_brain]: status: wait_human / waiting_human robot move done; waiting for a detection taken after the arm finished
+[brain_node-1] [INFO] [chess_brain]: human played a4a5
+[brain_node-1] [INFO] [chess_brain]: robot played c6b4
+[brain_node-1] [INFO] [chess_brain]: status: wait_human / waiting_human robot move done; waiting for a detection taken after the arm finished
+[mujoco_world_node-2] [INFO] [mujoco_world]: finished: 12 plies played
+[mujoco_world_node-2] [INFO] [mujoco_world]: plies played: 12
+[mujoco_world_node-2] [INFO] [mujoco_world]: robot moves:  6  (arm did it, camera confirmed: 6; finished by the operator: 0)
+[mujoco_world_node-2] [INFO] [mujoco_world]: human moves:  6  (camera inferred the move: 6; ambiguous, operator confirmed: 0; not recognised: 0)
+[mujoco_world_node-2] [INFO] [mujoco_world]: finished: 12 plies played
+[INFO] [mujoco_world_node-2]: process has finished cleanly [pid 18743]
+[INFO] [brain_node-1]: process has finished cleanly [pid 18742]
+launch exit 0 after 62 s
+{'result': '12 plies played', 'failed': False, 'final_fen': 'r1bqkb1r/ppp1pp1p/5n2/P2p3p/1n3P2/1P2P3/2PP2PP/RNB1KBNR w KQkq - 1 7'}
+====================================================================================================
+3a. MoveIt on mock hardware, board turned 90 degrees
+====================================================================================================
+ros2 launch chess_brain mock_gen3_lite.launch.py
+ros2 run chess_brain arm_adapter_node --ros-args --log-level chess_kinova_arm:=debug
+  -p executor:=chess_brain.kinova_executor:pick_and_place -p grasp_check:=false   + the parameters in the "=====" line
+Commands (position before the move | move):
+  rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1 | e7e5
+  rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2 | e4d5
+  rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1 | g8f6
+  r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R b KQkq - 0 1 | e8g8
+  4k3/1b6/8/8/8/8/8/4K3 b - - 0 1 | b7f3
+  4k3/8/5p2/8/2PNPP2/8/8/4K3 w - - 0 1 | d4f5
+The log leaves out the lines "Planning attempt" / "Execution attempt" (there were none), the Settings
+line and the start-up lines; the last line counts retries and fallbacks in the whole log.
+
+id 1 (e7e5): 43 s
+id 2 (e4d5): 83 s
+id 3 (g8f6): 43 s
+id 4 (e8g8): 78 s
+id 5 (b7f3): 47 s
+id 6 (d4f5): 46 s
+===== yaw90: -p board_x:=0.572 -p board_y:=-0.20 -p board_yaw_deg:=90.0 -p surface_z:=-0.056 -p offboard_drop:=0.0066 -p discard_x:=-0.075 -p discard_y:=0.175
+[INFO] [arm_adapter]: arm_adapter ready: executor chess_brain.kinova_executor:pick_and_place; a1 at (0.547, -0.175, -0.0560), h8 at (0.197, 0.175, -0.0560); grip direction: auto; looking at the board
+[INFO] [chess_kinova_arm]: end_effector_link: this package's kinematics and MoveIt differ by 0.00 mm.
+[INFO] [chess_kinova_arm]: arm ready at the WORK pose
+[INFO] [arm_adapter]: executor prepared: the arm is ready
+[INFO] [arm_adapter]: arm_actions: id 1 move e7e5 (1 action(s))
+[INFO] [chess_kinova_arm]: action 1/1: e7 (0.247, 0.025) -> e5 (0.347, 0.025); fingers open along 135 deg at the pick, 135 deg at the place
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.247, 0.025, 0.251), tool yaw 45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.247, 0.025, 0.121), tool yaw 45 deg
+[INFO] [chess_kinova_arm]: e7: fingers closed at 0.80
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.247, 0.025, 0.251), tool yaw 45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.347, 0.025, 0.251), tool yaw 45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.347, 0.025, 0.124), tool yaw 45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.347, 0.025, 0.251), tool yaw 45 deg
+[INFO] [arm_adapter]: arm_done: id 1 ok
+[INFO] [arm_adapter]: arm_actions: id 2 move e4d5 (2 action(s))
+[INFO] [chess_kinova_arm]: action 1/2: d5 (0.347, -0.025) -> DISCARD (0.397, -0.275); fingers open along 90 deg at the pick, 90 deg at the place
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.347, -0.025, 0.251), tool yaw 0 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.347, -0.025, 0.121), tool yaw 0 deg
+[INFO] [chess_kinova_arm]: d5: fingers closed at 0.80
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.347, -0.025, 0.251), tool yaw 0 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.397, -0.275, 0.251), tool yaw 0 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.397, -0.275, 0.117), tool yaw 0 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.397, -0.275, 0.251), tool yaw 0 deg
+[INFO] [chess_kinova_arm]: action 2/2: e4 (0.397, 0.025) -> d5 (0.347, -0.025); fingers open along 90 deg at the pick, 90 deg at the place
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.397, 0.025, 0.251), tool yaw 0 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.397, 0.025, 0.121), tool yaw 0 deg
+[INFO] [chess_kinova_arm]: e4: fingers closed at 0.80
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.397, 0.025, 0.251), tool yaw 0 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.347, -0.025, 0.251), tool yaw 0 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.347, -0.025, 0.124), tool yaw 0 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.347, -0.025, 0.251), tool yaw 0 deg
+[INFO] [arm_adapter]: arm_done: id 2 ok
+[INFO] [arm_adapter]: arm_actions: id 3 move g8f6 (1 action(s))
+[INFO] [chess_kinova_arm]: action 1/1: g8 (0.197, 0.125) -> f6 (0.297, 0.075); fingers open along 135 deg at the pick, 135 deg at the place
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.197, 0.125, 0.251), tool yaw 45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.197, 0.125, 0.121), tool yaw 45 deg
+[INFO] [chess_kinova_arm]: g8: fingers closed at 0.80
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.197, 0.125, 0.251), tool yaw 45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.297, 0.075, 0.251), tool yaw 45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.297, 0.075, 0.124), tool yaw 45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.297, 0.075, 0.251), tool yaw 45 deg
+[INFO] [arm_adapter]: arm_done: id 3 ok
+[INFO] [arm_adapter]: arm_actions: id 4 move e8g8 (2 action(s))
+[INFO] [chess_kinova_arm]: action 1/2: e8 (0.197, 0.025) -> g8 (0.197, 0.125); fingers open along 135 deg at the pick, 135 deg at the place
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.197, 0.025, 0.251), tool yaw 45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.197, 0.025, 0.121), tool yaw 45 deg
+[INFO] [chess_kinova_arm]: e8: fingers closed at 0.80
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.197, 0.025, 0.251), tool yaw 45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.197, 0.125, 0.251), tool yaw 45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.197, 0.125, 0.124), tool yaw 45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.197, 0.125, 0.251), tool yaw 45 deg
+[INFO] [chess_kinova_arm]: action 2/2: h8 (0.197, 0.175) -> f8 (0.197, 0.075); fingers open along 135 deg at the pick, 135 deg at the place
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.197, 0.175, 0.251), tool yaw 45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.197, 0.175, 0.121), tool yaw 45 deg
+[INFO] [chess_kinova_arm]: h8: fingers closed at 0.80
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.197, 0.175, 0.251), tool yaw 45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.197, 0.075, 0.251), tool yaw 45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.197, 0.075, 0.124), tool yaw 45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.197, 0.075, 0.251), tool yaw 45 deg
+[INFO] [arm_adapter]: arm_done: id 4 ok
+[INFO] [arm_adapter]: arm_actions: id 5 move b7f3 (1 action(s))
+[INFO] [chess_kinova_arm]: action 1/1: b7 (0.247, -0.125) -> f3 (0.447, 0.075); fingers open along 90 deg at the pick, 90 deg at the place
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.247, -0.125, 0.251), tool yaw 0 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.247, -0.125, 0.121), tool yaw 0 deg
+[INFO] [chess_kinova_arm]: b7: fingers closed at 0.80
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.247, -0.125, 0.251), tool yaw 0 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.447, 0.075, 0.251), tool yaw 0 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.447, 0.075, 0.124), tool yaw 0 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.447, 0.075, 0.251), tool yaw 0 deg
+[INFO] [arm_adapter]: arm_done: id 5 ok
+[INFO] [arm_adapter]: arm_actions: id 6 move d4f5 (1 action(s))
+[INFO] [chess_kinova_arm]: action 1/1: d4 (0.397, -0.025) -> f5 (0.347, 0.075); fingers open along 0 deg at the pick, 90 deg at the place
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.397, -0.025, 0.251), tool yaw 90 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.397, -0.025, 0.121), tool yaw 90 deg
+[INFO] [chess_kinova_arm]: d4: fingers closed at 0.80
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.397, -0.025, 0.251), tool yaw 90 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.347, 0.075, 0.251), tool yaw 180 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.347, 0.075, 0.124), tool yaw 180 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.347, 0.075, 0.251), tool yaw 180 deg
+[INFO] [arm_adapter]: arm_done: id 6 ok
+planning or execution retries and fallbacks: 0
+====================================================================================================
+3b. MoveIt on mock hardware, board not turned
+====================================================================================================
+Commands:
+  rnbqkbnr/pppp1ppp/8/4p3/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 | e2e4
+  rnbqkbnr/pppp1ppp/8/4p3/3P4/8/PPP1PPPP/RNBQKBNR b KQkq - 0 2 | e5d4
+  rnbqkbnr/pppp1ppp/8/4p3/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 | b1c3
+  r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1 | e1c1
+  4k3/8/8/8/8/8/1B6/4K3 w - - 0 1 | b2f6
+  4k3/8/5p2/8/2PNPP2/8/8/4K3 w - - 0 1 | d4f5
+  r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1 | e1g1      (g1 is out of reach here: must fail)
+All 13 retries and fallbacks counted in the last line belong to the seventh command.
+
+id 1 (e2e4): 43 s
+id 2 (e5d4): 89 s
+id 3 (b1c3): 40 s
+id 4 (e1c1): 84 s
+id 5 (b2f6): 49 s
+id 6 (d4f5): 46 s
+id 7 (e1g1): 53 s
+===== yaw0: -p board_x:=0.172 -p board_y:=-0.20 -p board_yaw_deg:=0.0 -p surface_z:=-0.056 -p offboard_drop:=0.0066
+[INFO] [arm_adapter]: arm_adapter ready: executor chess_brain.kinova_executor:pick_and_place; a1 at (0.197, -0.175, -0.0560), h8 at (0.547, 0.175, -0.0560); grip direction: auto; looking at the board
+[INFO] [chess_kinova_arm]: end_effector_link: this package's kinematics and MoveIt differ by 0.00 mm.
+[INFO] [chess_kinova_arm]: arm ready at the WORK pose
+[INFO] [arm_adapter]: executor prepared: the arm is ready
+[INFO] [arm_adapter]: arm_actions: id 1 move e2e4 (1 action(s))
+[INFO] [chess_kinova_arm]: action 1/1: e2 (0.397, -0.125) -> e4 (0.397, -0.025); fingers open along 45 deg at the pick, 45 deg at the place
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.397, -0.125, 0.251), tool yaw -45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.397, -0.125, 0.121), tool yaw -45 deg
+[INFO] [chess_kinova_arm]: e2: fingers closed at 0.80
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.397, -0.125, 0.251), tool yaw -45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.397, -0.025, 0.251), tool yaw -45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.397, -0.025, 0.124), tool yaw -45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.397, -0.025, 0.251), tool yaw -45 deg
+[INFO] [arm_adapter]: arm_done: id 1 ok
+[INFO] [arm_adapter]: arm_actions: id 2 move e5d4 (2 action(s))
+[INFO] [chess_kinova_arm]: action 1/2: d4 (0.347, -0.025) -> DISCARD (0.097, -0.175); fingers open along 0 deg at the pick, 0 deg at the place
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.347, -0.025, 0.251), tool yaw 90 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.347, -0.025, 0.121), tool yaw 90 deg
+[INFO] [chess_kinova_arm]: d4: fingers closed at 0.80
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.347, -0.025, 0.251), tool yaw 90 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.097, -0.175, 0.251), tool yaw 90 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.097, -0.175, 0.117), tool yaw 90 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.097, -0.175, 0.251), tool yaw 90 deg
+[INFO] [chess_kinova_arm]: action 2/2: e5 (0.397, 0.025) -> d4 (0.347, -0.025); fingers open along 0 deg at the pick, 0 deg at the place
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.397, 0.025, 0.251), tool yaw 90 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.397, 0.025, 0.121), tool yaw 90 deg
+[INFO] [chess_kinova_arm]: e5: fingers closed at 0.80
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.397, 0.025, 0.251), tool yaw 90 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.347, -0.025, 0.251), tool yaw 90 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.347, -0.025, 0.124), tool yaw 90 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.347, -0.025, 0.251), tool yaw 90 deg
+[INFO] [arm_adapter]: arm_done: id 2 ok
+[INFO] [arm_adapter]: arm_actions: id 3 move b1c3 (1 action(s))
+[INFO] [chess_kinova_arm]: action 1/1: b1 (0.247, -0.175) -> c3 (0.297, -0.075); fingers open along 45 deg at the pick, 45 deg at the place
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.247, -0.175, 0.251), tool yaw -45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.247, -0.175, 0.121), tool yaw -45 deg
+[INFO] [chess_kinova_arm]: b1: fingers closed at 0.80
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.247, -0.175, 0.251), tool yaw -45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.297, -0.075, 0.251), tool yaw -45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.297, -0.075, 0.124), tool yaw -45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.297, -0.075, 0.251), tool yaw -45 deg
+[INFO] [arm_adapter]: arm_done: id 3 ok
+[INFO] [arm_adapter]: arm_actions: id 4 move e1c1 (2 action(s))
+[INFO] [chess_kinova_arm]: action 1/2: e1 (0.397, -0.175) -> c1 (0.297, -0.175); fingers open along 0 deg at the pick, 0 deg at the place
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.397, -0.175, 0.251), tool yaw 90 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.397, -0.175, 0.121), tool yaw 90 deg
+[INFO] [chess_kinova_arm]: e1: fingers closed at 0.80
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.397, -0.175, 0.251), tool yaw 90 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.297, -0.175, 0.251), tool yaw 90 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.297, -0.175, 0.124), tool yaw 90 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.297, -0.175, 0.251), tool yaw 90 deg
+[INFO] [chess_kinova_arm]: action 2/2: a1 (0.197, -0.175) -> d1 (0.347, -0.175); fingers open along 45 deg at the pick, 45 deg at the place
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.197, -0.175, 0.251), tool yaw 135 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.197, -0.175, 0.121), tool yaw 135 deg
+[INFO] [chess_kinova_arm]: a1: fingers closed at 0.80
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.197, -0.175, 0.251), tool yaw 135 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.347, -0.175, 0.251), tool yaw 135 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.347, -0.175, 0.124), tool yaw 135 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.347, -0.175, 0.251), tool yaw 135 deg
+[INFO] [arm_adapter]: arm_done: id 4 ok
+[INFO] [arm_adapter]: arm_actions: id 5 move b2f6 (1 action(s))
+[INFO] [chess_kinova_arm]: action 1/1: b2 (0.247, -0.125) -> f6 (0.447, 0.075); fingers open along 0 deg at the pick, 0 deg at the place
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.247, -0.125, 0.251), tool yaw 90 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.247, -0.125, 0.121), tool yaw 90 deg
+[INFO] [chess_kinova_arm]: b2: fingers closed at 0.80
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.247, -0.125, 0.251), tool yaw 90 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.447, 0.075, 0.251), tool yaw 90 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.447, 0.075, 0.124), tool yaw 90 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.447, 0.075, 0.251), tool yaw 90 deg
+[INFO] [arm_adapter]: arm_done: id 5 ok
+[INFO] [arm_adapter]: arm_actions: id 6 move d4f5 (1 action(s))
+[INFO] [chess_kinova_arm]: action 1/1: d4 (0.347, -0.025) -> f5 (0.447, 0.025); fingers open along 90 deg at the pick, 0 deg at the place
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.347, -0.025, 0.251), tool yaw 0 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.347, -0.025, 0.121), tool yaw 0 deg
+[INFO] [chess_kinova_arm]: d4: fingers closed at 0.80
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.347, -0.025, 0.251), tool yaw 0 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.447, 0.025, 0.251), tool yaw 90 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.447, 0.025, 0.124), tool yaw 90 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.447, 0.025, 0.251), tool yaw 90 deg
+[INFO] [arm_adapter]: arm_done: id 6 ok
+[INFO] [arm_adapter]: arm_actions: id 7 move e1g1 (2 action(s))
+[INFO] [chess_kinova_arm]: action 1/2: e1 (0.397, -0.175) -> g1 (0.497, -0.175); fingers open along 45 deg at the pick, 45 deg at the place
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.397, -0.175, 0.251), tool yaw -45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.397, -0.175, 0.121), tool yaw -45 deg
+[INFO] [chess_kinova_arm]: e1: fingers closed at 0.80
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.397, -0.175, 0.251), tool yaw -45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.497, -0.175, 0.251), tool yaw -45 deg
+[WARN] [chess_kinova_arm]: Planning failed! Cartesian planner completed 0.8571428571428571 of the trajectory, less than the threshold 0.999.
+[WARN] [chess_kinova_arm]: Planning failed! Cartesian planner completed 0.8571428571428571 of the trajectory, less than the threshold 0.999.
+[WARN] [chess_kinova_arm]: Planning failed! Cartesian planner completed 0.8571428571428571 of the trajectory, less than the threshold 0.999.
+[ERROR] [chess_kinova_arm]: Could not plan or execute a straight-line motion to (0.497, -0.175, 0.251), tool yaw -45 deg.
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.497, -0.175, 0.251), tool yaw 135 deg
+[WARN] [chess_kinova_arm]: Planning failed! Cartesian planner completed 0.15 of the trajectory, less than the threshold 0.999.
+[WARN] [chess_kinova_arm]: Planning failed! Cartesian planner completed 0.15 of the trajectory, less than the threshold 0.999.
+[WARN] [chess_kinova_arm]: Planning failed! Cartesian planner completed 0.15 of the trajectory, less than the threshold 0.999.
+[ERROR] [chess_kinova_arm]: Could not plan or execute a straight-line motion to (0.497, -0.175, 0.251), tool yaw 135 deg.
+[INFO] [chess_kinova_arm]: no straight line to (0.497, -0.175); letting MoveIt choose a path
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.497, -0.175, 0.251), tool yaw -45 deg
+[WARN] [chess_kinova_arm]: Planning failed! Error code: FAILURE
+[WARN] [chess_kinova_arm]: Planning failed! Error code: FAILURE
+[WARN] [chess_kinova_arm]: Planning failed! Error code: FAILURE
+[ERROR] [chess_kinova_arm]: Could not plan or execute a pose-goal motion to (0.497, -0.175, 0.251), tool yaw -45 deg.
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.497, -0.175, 0.251), tool yaw 135 deg
+[WARN] [chess_kinova_arm]: Planning failed! Error code: FAILURE
+[WARN] [chess_kinova_arm]: Planning failed! Error code: FAILURE
+[WARN] [chess_kinova_arm]: Planning failed! Error code: FAILURE
+[ERROR] [chess_kinova_arm]: Could not plan or execute a pose-goal motion to (0.497, -0.175, 0.251), tool yaw 135 deg.
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.397, -0.175, 0.124), tool yaw -45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.397, -0.175, 0.251), tool yaw -45 deg
+[ERROR] [arm_adapter]: arm_done: id 7 FAILED at action 0: could not reach above g1; the piece was put back on e1
+planning or execution retries and fallbacks: 13
+====================================================================================================
+4. The first run of e2e4 on the board that is not turned (before the fix in 2bb7d1e)
+====================================================================================================
+[INFO] [arm_adapter]: arm_actions: id 1 move e2e4 (1 action(s))
+[INFO] [chess_kinova_arm]: action 1/1: e2 (0.397, -0.125) -> e4 (0.397, -0.025); fingers open along 45 deg at the pick, 45 deg at the place
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.397, -0.125, 0.251), tool yaw -45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.397, -0.125, 0.121), tool yaw -45 deg
+[INFO] [chess_kinova_arm]: e2: fingers closed at 0.80
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.397, -0.125, 0.251), tool yaw -45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.397, -0.025, 0.251), tool yaw 135 deg
+[WARN] [chess_kinova_arm]: Planning failed! Cartesian planner completed 0.1111111111111111 of the trajectory, less than the threshold 0.999.
+[WARN] [chess_kinova_arm]: Planning failed! Cartesian planner completed 0.1111111111111111 of the trajectory, less than the threshold 0.999.
+[WARN] [chess_kinova_arm]: Planning failed! Cartesian planner completed 0.1111111111111111 of the trajectory, less than the threshold 0.999.
+[ERROR] [chess_kinova_arm]: Could not plan or execute a straight-line motion to (0.397, -0.025, 0.251), tool yaw 135 deg.
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.397, -0.025, 0.251), tool yaw -45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.397, -0.025, 0.124), tool yaw -45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.397, -0.025, 0.251), tool yaw -45 deg
+[INFO] [arm_adapter]: arm_done: id 1 ok
+====================================================================================================
+5a. Camera to arm, the captured pieces are taken away
+====================================================================================================
+ros2 launch chess_brain robot.launch.py observation:=occupancy detector:=chessbot_sim_ros.camera_detector:detect
+  image_topic:=/camera/image_raw camera_info_topic:=/camera/camera_info period:=1.0 stable_time:=1.0 think_time:=0.3
+  dry_run_time:=1.0                (stopped by the test script after 85 s)
+
+===== ok: robot.launch.py (brain + vision adapter + arm adapter), key lines
+[vision_adapter_node-2] [INFO] [vision_adapter]: vision_adapter ready: detector chessbot_sim_ros.camera_detector:detect; output occupancy; images from '/camera/image_raw'; camera info from '/camera/camera_info'; detecting every 1s and on request
+[arm_adapter_node-3] [INFO] [arm_adapter]: arm_adapter ready: DRY RUN (no arm motion; set -p executor:=package.module:function); a1 at (0.025, 0.025, 0.0066), h8 at (0.375, 0.375, 0.0066); grip direction: auto; looking at the board before moving: occupancy
+[vision_adapter_node-2] [WARN] [vision_adapter]: detection requested (periodic) but no camera image has arrived yet
+[brain_node-1] [INFO] [chess_brain]: chess_brain ready: engine=Stockfish 16 (/usr/games/stockfish), robot=black, stable_time=1s, allow_promotion=False, first arm_actions id=117201
+[brain_node-1] [INFO] [chess_brain]: status: setup / setup waiting for a stable detection of the start position (or cmd: start)
+[vision_adapter_node-2] [WARN] [vision_adapter]: detection requested (setup) but no camera image has arrived yet
+[vision_adapter_node-2] [WARN] [vision_adapter]: detection requested (periodic) but no camera image has arrived yet
+[brain_node-1] [INFO] [chess_brain]: human played e2e4
+[brain_node-1] [INFO] [chess_brain]: arm_actions: {'id': 117201, 'move': 'g8f6', 'actions': [{'pick': 'g8', 'place': 'f6'}], 'occupied': ['a1', 'a2', 'a7', 'a8', 'b1', 'b2', 'b7', 'b8', 'c1', 'c2', 'c7', 'c8', 'd1', 'd2', 'd7', 'd8', 'e1', 'e4', 'e7', 'e8', 'f
+[arm_adapter_node-3] [INFO] [arm_adapter]: arm_actions: id 117201 move g8f6 (1 action(s))
+[arm_adapter_node-3] [INFO] [arm_adapter]: dry run 1/1: g8 (0.325, 0.375, 0.007) -> f6 (0.275, 0.275, 0.007)
+[arm_adapter_node-3] [INFO] [arm_adapter]: arm_done: id 117201 ok
+[brain_node-1] [INFO] [chess_brain]: robot played g8f6
+[vision_adapter_node-2] [INFO] [vision_adapter]: detection (periodic) not published: a newer request is waiting
+[brain_node-1] [INFO] [chess_brain]: human played f1a6
+[brain_node-1] [INFO] [chess_brain]: arm_actions: {'id': 117202, 'move': 'b8a6', 'actions': [{'pick': 'a6', 'place': 'DISCARD'}, {'pick': 'b8', 'place': 'a6'}], 'occupied': ['a1', 'a2', 'a6', 'a7', 'a8', 'b1', 'b2', 'b7', 'b8', 'c1', 'c2', 'c7', 'c8', 'd1', 'd
+[arm_adapter_node-3] [INFO] [arm_adapter]: arm_actions: id 117202 move b8a6 (2 action(s))
+[arm_adapter_node-3] [INFO] [arm_adapter]: dry run 1/2: a6 (0.025, 0.275, 0.007) -> DISCARD (-0.075, 0.025, 0.007)
+[vision_adapter_node-2] [INFO] [vision_adapter]: detection (periodic) not published: a newer request is waiting
+[arm_adapter_node-3] [INFO] [arm_adapter]: dry run 2/2: b8 (0.075, 0.375, 0.007) -> a6 (0.025, 0.275, 0.007)
+[arm_adapter_node-3] [INFO] [arm_adapter]: arm_done: id 117202 ok
+[brain_node-1] [INFO] [chess_brain]: robot played b8a6
+[brain_node-1] [INFO] [chess_brain]: human played a2a3
+[brain_node-1] [INFO] [chess_brain]: arm_actions: {'id': 117203, 'move': 'f6e4', 'actions': [{'pick': 'e4', 'place': 'DISCARD'}, {'pick': 'f6', 'place': 'e4'}], 'occupied': ['a1', 'a3', 'a6', 'a7', 'a8', 'b1', 'b2', 'b7', 'c1', 'c2', 'c7', 'c8', 'd1', 'd2', 'd
+[arm_adapter_node-3] [INFO] [arm_adapter]: arm_actions: id 117203 move f6e4 (2 action(s))
+[arm_adapter_node-3] [INFO] [arm_adapter]: dry run 1/2: e4 (0.225, 0.175, 0.007) -> DISCARD (-0.075, 0.075, 0.007)
+[vision_adapter_node-2] [INFO] [vision_adapter]: detection (periodic) not published: a newer request is waiting
+[arm_adapter_node-3] [INFO] [arm_adapter]: dry run 2/2: f6 (0.275, 0.275, 0.007) -> e4 (0.225, 0.175, 0.007)
+[arm_adapter_node-3] [INFO] [arm_adapter]: arm_done: id 117203 ok
+[brain_node-1] [INFO] [chess_brain]: robot played f6e4
+[vision_adapter_node-2] [WARN] [vision_adapter]: detection requested (periodic) but the last camera image is 2.2s old
+[ERROR] [brain_node-1]: process has died [pid 6718, exit code -9, cmd '/tmp/ws/install/chess_brain/lib/chess_brain/brain_node --ros-args -r __node:=chess_brain --params-file /tmp/launch_params_8fw141tx'].
+/scripts/vision_chain.sh: line 18:  6712 Killed                  ros2 launch chess_brain robot.launch.py observation:=occupancy detector:=chessbot_sim_ros.camera_detector:detect image_topic:=/camera/image_raw camera_info_topic:=/camera/camera_info period:=1.0 stable_time:=1.0 think_time:=0.3 dry_run_time:=1.0 > /out/robot_$1.log 2>&1
+----- occupancy detections published: 85 (on the arm's request: 5)
+----- sim_camera
+[INFO] [sim_camera]: sim_camera ready: opponent will play ['e2e4', 'f1a6', 'a2a3'], stuck=False
+[INFO] [sim_camera]: hands: the opponent played e2e4
+[INFO] [sim_camera]: hands: moved the piece of g8 to f6
+[INFO] [sim_camera]: hands: the opponent played f1a6
+[INFO] [sim_camera]: hands: moved the piece of a6 to DISCARD
+[INFO] [sim_camera]: hands: moved the piece of b8 to a6
+[INFO] [sim_camera]: hands: the opponent played a2a3
+[INFO] [sim_camera]: hands: moved the piece of e4 to DISCARD
+[INFO] [sim_camera]: hands: moved the piece of f6 to e4
+Traceback (most recent call last):
+    handler, entity, node = self.wait_for_ready_callbacks(
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/executors.py", line 885, in wait_for_ready_callbacks
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/executors.py", line 765, in _wait_for_ready_callbacks
+rclpy._rclpy_pybind11.RCLError: failed to initialize wait set: the given context is not valid, either rcl_init() was not called or rcl_shutdown() was called., at ./src/rcl/wait.c:130
+====================================================================================================
+5b. Camera to arm, the captured piece is left on its square
+====================================================================================================
+===== stuck: robot.launch.py (brain + vision adapter + arm adapter), key lines
+[vision_adapter_node-2] [INFO] [vision_adapter]: vision_adapter ready: detector chessbot_sim_ros.camera_detector:detect; output occupancy; images from '/camera/image_raw'; camera info from '/camera/camera_info'; detecting every 1s and on request
+[arm_adapter_node-3] [INFO] [arm_adapter]: arm_adapter ready: DRY RUN (no arm motion; set -p executor:=package.module:function); a1 at (0.025, 0.025, 0.0066), h8 at (0.375, 0.375, 0.0066); grip direction: auto; looking at the board before moving: occupancy
+[vision_adapter_node-2] [WARN] [vision_adapter]: detection requested (periodic) but no camera image has arrived yet
+[brain_node-1] [INFO] [chess_brain]: chess_brain ready: engine=Stockfish 16 (/usr/games/stockfish), robot=black, stable_time=1s, allow_promotion=False, first arm_actions id=126601
+[brain_node-1] [INFO] [chess_brain]: status: setup / setup waiting for a stable detection of the start position (or cmd: start)
+[vision_adapter_node-2] [WARN] [vision_adapter]: detection requested (setup) but no camera image has arrived yet
+[vision_adapter_node-2] [WARN] [vision_adapter]: detection requested (periodic) but no camera image has arrived yet
+[brain_node-1] [INFO] [chess_brain]: human played e2e4
+[brain_node-1] [INFO] [chess_brain]: arm_actions: {'id': 126601, 'move': 'e7e6', 'actions': [{'pick': 'e7', 'place': 'e6'}], 'occupied': ['a1', 'a2', 'a7', 'a8', 'b1', 'b2', 'b7', 'b8', 'c1', 'c2', 'c7', 'c8', 'd1', 'd2', 'd7', 'd8', 'e1', 'e4', 'e7', 'e8', 'f
+[arm_adapter_node-3] [INFO] [arm_adapter]: arm_actions: id 126601 move e7e6 (1 action(s))
+[arm_adapter_node-3] [INFO] [arm_adapter]: dry run 1/1: e7 (0.225, 0.325, 0.007) -> e6 (0.225, 0.275, 0.007)
+[arm_adapter_node-3] [INFO] [arm_adapter]: arm_done: id 126601 ok
+[brain_node-1] [INFO] [chess_brain]: robot played e7e6
+[brain_node-1] [INFO] [chess_brain]: human played f1a6
+[brain_node-1] [INFO] [chess_brain]: arm_actions: {'id': 126602, 'move': 'b8a6', 'actions': [{'pick': 'a6', 'place': 'DISCARD'}, {'pick': 'b8', 'place': 'a6'}], 'occupied': ['a1', 'a2', 'a6', 'a7', 'a8', 'b1', 'b2', 'b7', 'b8', 'c1', 'c2', 'c7', 'c8', 'd1', 'd
+[arm_adapter_node-3] [INFO] [arm_adapter]: arm_actions: id 126602 move b8a6 (2 action(s))
+[arm_adapter_node-3] [INFO] [arm_adapter]: dry run 1/2: a6 (0.025, 0.275, 0.007) -> DISCARD (-0.075, 0.025, 0.007)
+[vision_adapter_node-2] [INFO] [vision_adapter]: detection (periodic) not published: a newer request is waiting
+[arm_adapter_node-3] [ERROR] [arm_adapter]: arm_done: id 126602 FAILED at action 1: not started: the camera sees a piece on a6, where the piece from b8 is to go; no piece was moved by this action
+[brain_node-1] [INFO] [chess_brain]: status: recover / arm_failed not started: the camera sees a piece on a6, where the piece from b8 is to go; no piece was moved by this action; robot move b8a6 not confirmed. Board must show rnbqkbnr/pppp1ppp/B3p3/8/4P3/8/PPP
+[brain_node-1] [INFO] [chess_brain]: arm_actions: {'id': 126603, 'move': 'b8a6', 'actions': [{'pick': 'a6', 'place': 'DISCARD'}, {'pick': 'b8', 'place': 'a6'}], 'occupied': ['a1', 'a2', 'a6', 'a7', 'a8', 'b1', 'b2', 'b7', 'b8', 'c1', 'c2', 'c7', 'c8', 'd1', 'd
+[arm_adapter_node-3] [INFO] [arm_adapter]: arm_actions: id 126603 move b8a6 (2 action(s))
+[arm_adapter_node-3] [INFO] [arm_adapter]: dry run 1/2: a6 (0.025, 0.275, 0.007) -> DISCARD (-0.075, 0.075, 0.007)
+[vision_adapter_node-2] [INFO] [vision_adapter]: detection (periodic) not published: a newer request is waiting
+[arm_adapter_node-3] [ERROR] [arm_adapter]: arm_done: id 126603 FAILED at action 1: not started: the camera sees a piece on a6, where the piece from b8 is to go; no piece was moved by this action
+[brain_node-1] [INFO] [chess_brain]: status: recover / arm_failed not started: the camera sees a piece on a6, where the piece from b8 is to go; no piece was moved by this action; robot move b8a6 not confirmed. Board must show rnbqkbnr/pppp1ppp/B3p3/8/4P3/8/PPP
+[brain_node-1] [INFO] [chess_brain]: status: recover / arm_failed robot move b8a6 was not executed; make it by hand, or send cmd: retry
+[ERROR] [brain_node-1]: process has died [pid 12862, exit code -9, cmd '/tmp/ws/install/chess_brain/lib/chess_brain/brain_node --ros-args -r __node:=chess_brain --params-file /tmp/launch_params_y74i8xxg'].
+[ERROR] [arm_adapter_node-3]: process has died [pid 12864, exit code -9, cmd '/tmp/ws/install/chess_brain/lib/chess_brain/arm_adapter_node --ros-args --params-file /tmp/launch_params_u1kpmfw_ --params-file /tmp/launch_params__gzcolii --params-file /tmp/launch_
+/scripts/vision_chain.sh: line 18: 12858 Killed                  ros2 launch chess_brain robot.launch.py observation:=occupancy detector:=chessbot_sim_ros.camera_detector:detect image_topic:=/camera/image_raw camera_info_topic:=/camera/camera_info period:=1.0 stable_time:=1.0 think_time:=0.3 dry_run_time:=1.0 > /out/robot_$1.log 2>&1
+----- occupancy detections published: 82 (on the arm's request: 5)
+----- sim_camera
+[INFO] [sim_camera]: sim_camera ready: opponent will play ['e2e4', 'f1a6'], stuck=True
+[INFO] [sim_camera]: hands: the opponent played e2e4
+[INFO] [sim_camera]: hands: moved the piece of e7 to e6
+[INFO] [sim_camera]: hands: the opponent played f1a6
+[WARN] [sim_camera]: hands: NOT taking the captured piece away (STUCK=1)
+[WARN] [sim_camera]: arm failed: not started: the camera sees a piece on a6, where the piece from b8 is to go; no piece was moved by this action
+[WARN] [sim_camera]: hands: NOT taking the captured piece away (STUCK=1)
+[WARN] [sim_camera]: arm failed: not started: the camera sees a piece on a6, where the piece from b8 is to go; no piece was moved by this action
+Traceback (most recent call last):
+    handler, entity, node = self.wait_for_ready_callbacks(
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/executors.py", line 885, in wait_for_ready_callbacks
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/executors.py", line 793, in _wait_for_ready_callbacks
