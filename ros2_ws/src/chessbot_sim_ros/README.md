@@ -39,6 +39,9 @@ source install/setup.bash
 ros2 launch chessbot_sim_ros mujoco_game.launch.py plies:=12
 ```
 
+If `colcon build` stops with `can't copy '.../build/chess_brain/launch/...'`, the build directory
+was left by another branch: `rm -rf build/chess_brain install/chess_brain` and build again.
+
 The launch ends when the game does. The last lines are the summary; one camera image per ply
 and `summary.json` are in `out_dir` (default `game_run_ros/` in the directory you launched from).
 To watch from a second terminal: `ros2 run chess_brain operator_node`.

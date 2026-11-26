@@ -1,7 +1,8 @@
 # Plan: the MuJoCo game on ROS 2
 
-Status (2026-11-25, evening): **built and verified on the Mac (steps 1 to 4); not run on the VM yet;
-nothing committed.** Section 8 says what was built, what differs from the plan, and what was
+Status (2026-11-25, night): **built and verified on the Mac (steps 1 to 4), then run in the course
+image on the VM (`docs/evidence/2026-11-25_vm_ros2_mujoco_game_12plies.txt`); on the branch
+`feature/sim-game`, not merged.** Section 8 says what was built, what differs from the plan, and what was
 checked how. The plan itself was reviewed twice before the work and the code twice after.
 
 Goal: the game that `python -m chessbot_sim.play_game` plays in one process runs as ROS 2 nodes on
@@ -241,7 +242,7 @@ not: Hao's arm motion code. The MoveIt side is not part of this plan.
 | 3. `MujocoWorld`, game without ROS | done: `chessbot_sim/world.py`, `chessbot_sim_ros/dry_run.py` |
 | 4. node, launch, set-up script, Dockerfile | done: `mujoco_world_node.py`, `launch/mujoco_game.launch.py`, `scripts/setup_sim_deps.sh`, `docker/jazzy-sim/Dockerfile` |
 | 5. evidence | written to `docs/evidence/2026-11-25_ros2_mujoco_game_*.txt`; branch / commit / PR wait for David |
-| 6. the course container on the VM | **open** |
+| 6. the course container on the VM | done 2026-11-25: 12 plies, arm 6/6, opponent 6/6, EGL works there (`docs/evidence/2026-11-25_vm_ros2_mujoco_game_12plies.txt`) |
 
 What differs from sections 2 to 4 (found by the code reviews or while running):
 
@@ -277,7 +278,8 @@ What was checked, and how:
 The arm executed, with the camera confirming: quiet moves, captures (including a1, the far
 corner, and captures by knight and bishop) and castling (before the review fixes; king then rook).
 
-Not verified: the course image on the VM (amd64, EGL untested there); a failing arm and an
+Not verified: in the course image on the VM only the default game was run (black, continuous,
+12 plies); a failing arm and an
 ambiguous capture in the real simulation (pytest covers both paths with a fake world); en
 passant and promotion executed by the arm; games longer than 24 plies; a second frame that is
 wrong in the same way as the first (a piece held, or missed, across both).
