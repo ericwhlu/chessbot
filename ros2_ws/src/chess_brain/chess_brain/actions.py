@@ -28,7 +28,7 @@ only applies the move once the arm reports ``ok`` (see CHESS_BRAIN_PLAN.md §3.3
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List
+from typing import Iterable, List, Optional
 
 import chess
 
@@ -104,6 +104,21 @@ def move_to_actions(board: chess.Board, move: chess.Move, allow_promotion: bool 
     return actions
 
 
-def actions_payload(action_id: int, move: chess.Move, actions: List[ArmAction]) -> dict:
-    """The JSON-serialisable message published on ``chessbot/arm_actions``."""
-    return {"id": int(action_id), "move": move.uci(), "actions": [a.as_dict() for a in actions]}
+def occupied_squares(board: chess.Board) -> List[str]:
+    """Names of the squares that hold a piece, a1 first."""
+    return [chess.square_name(square) for square in chess.SQUARES if board.piece_at(square) is not None]
+
+
+def actions_payload(
+    action_id: int, move: chess.Move, actions: List[ArmAction], occupied: Optional[Iterable[str]] = None
+) -> dict:
+    """The JSON-serialisable message published on ``chessbot/arm_actions``.
+
+    ``occupied`` (optional) is every square that holds a piece BEFORE the first action. The arm
+    side uses it to keep the gripper clear of the other pieces (grip_direction.py); a receiver
+    that does not know the key ignores it.
+    """
+    payload = {"id": int(action_id), "move": move.uci(), "actions": [a.as_dict() for a in actions]}
+    if occupied is not None:
+        payload["occupied"] = sorted(str(name) for name in occupied)
+    return payload

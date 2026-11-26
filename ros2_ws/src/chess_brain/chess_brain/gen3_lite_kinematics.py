@@ -34,8 +34,31 @@ CHAIN = (
 JOINT_LIMITS = (2.68, 2.61, 2.61, 2.59, 2.53, 2.59)  # each joint: -limit .. +limit (rad)
 
 # Gripper pointing straight down, as a quaternion (x, y, z, w) and as the same rotation matrix.
+# In this orientation ("yaw 0") the two fingers open along the base frame's y axis.
 TOP_DOWN = (0.0, 1.0, 0.0, 0.0)
 TOP_DOWN_ROTATION: Matrix = ((-1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, -1.0))
+
+
+def top_down_quaternion(yaw: float = 0.0) -> Tuple[float, float, float, float]:
+    """Quaternion (x, y, z, w) of the gripper pointing straight down and turned by ``yaw``
+    (rad) about the vertical, counter-clockwise seen from above."""
+    return (-math.sin(yaw / 2.0), math.cos(yaw / 2.0), 0.0, 0.0)
+
+
+def top_down_rotation(yaw: float = 0.0) -> Matrix:
+    """The same orientation as a rotation matrix: Rz(yaw) * TOP_DOWN_ROTATION."""
+    c, s = math.cos(yaw), math.sin(yaw)
+    return ((-c, -s, 0.0), (-s, c, 0.0), (0.0, 0.0, -1.0))
+
+
+def grip_yaws(grip: float) -> Tuple[float, float]:
+    """The two tool yaws (rad, in -pi..pi) for which the fingers open along the line at angle
+    ``grip`` (rad, base frame, measured from +x). The fingers are alike, so the two yaws, half a
+    turn apart, grip the same way; which one the arm can reach more easily depends on the pose."""
+    def wrap(a: float) -> float:
+        return math.atan2(math.sin(a), math.cos(a))
+
+    return (wrap(grip - math.pi / 2.0), wrap(grip + math.pi / 2.0))
 
 # The course's WORK pose (Lab 6): elbow up above the table, a good first guess for a top-down pose.
 WORK = (0.40, 0.02, 2.27, -1.57, -0.84, 1.97)
@@ -190,12 +213,16 @@ def solutions(position: Vector, rotation: Matrix, wanted: int = 4, starts: int =
     return found
 
 
-@lru_cache(maxsize=4096)
-def _top_down(x: float, y: float, z: float) -> Tuple[Tuple[float, ...], ...]:
-    return tuple(tuple(q) for q in solutions((x, y, z), TOP_DOWN_ROTATION))
+@lru_cache(maxsize=8192)
+def _top_down(x: float, y: float, z: float, yaw: float) -> Tuple[Tuple[float, ...], ...]:
+    return tuple(tuple(q) for q in solutions((x, y, z), top_down_rotation(yaw)))
 
 
-def top_down_solutions(x: float, y: float, z: float) -> List[List[float]]:
+def top_down_solutions(x: float, y: float, z: float, yaw: float = 0.0) -> List[List[float]]:
     """Joint angles for end_effector_link at (x, y, z) in base_link with the gripper straight down
-    (the orientation kinova_arm commands). Empty if the arm cannot get there."""
-    return [list(q) for q in _top_down(round(float(x), 5), round(float(y), 5), round(float(z), 5))]
+    and turned by ``yaw`` about the vertical (0 = the orientation of TOP_DOWN). Empty if the arm
+    cannot get there."""
+    return [
+        list(q)
+        for q in _top_down(round(float(x), 5), round(float(y), 5), round(float(z), 5), round(float(yaw), 6))
+    ]

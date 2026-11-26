@@ -177,7 +177,11 @@ def test_full_turn_human_move_engine_reply_arm_ok_verify():
 
     h.tick()                                                      # engine reply ready
     assert h.m.state == State.EXECUTING
-    assert h.actions == [{"id": 1, "move": "e7e5", "actions": [{"pick": "e7", "place": "e5"}]}]
+    # every square that holds a piece before the arm starts goes along, for the arm to stay clear of
+    occupied = sorted({f + r for r in "1278" for f in "abcdefgh"} - {"e2"} | {"e4"})
+    assert h.actions == [
+        {"id": 1, "move": "e7e5", "actions": [{"pick": "e7", "place": "e5"}], "occupied": occupied}
+    ]
     # the robot's move is NOT applied until the arm confirms
     assert h.m.game.board.turn == chess.BLACK
     assert h.m.game.placement() == after(chess.STARTING_FEN, "e2e4")

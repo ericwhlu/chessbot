@@ -19,6 +19,7 @@ Differences from the lab helper:
 from __future__ import annotations
 
 import inspect
+import math
 import time
 from typing import List, Optional
 
@@ -31,7 +32,7 @@ from rclpy.duration import Duration
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 
-from .gen3_lite_kinematics import TOP_DOWN, forward, top_down_solutions
+from .gen3_lite_kinematics import forward, grip_yaws, top_down_quaternion, top_down_solutions
 from .kinova_executor import FINGER_CLOSED, LAB_SPEED_LIMIT, TABLE_TOP_Z, Settings
 
 ARM_JOINTS = ["joint_1", "joint_2", "joint_3", "joint_4", "joint_5", "joint_6"]
@@ -147,6 +148,7 @@ class KinovaArm(Node):
         if "cancel_on_timeout" in wait_arguments:
             self._wait_extra["cancel_on_timeout"] = True
         self._started = False   # did the last move_to_* send a trajectory to the arm?
+        self._yaw: Optional[float] = None   # tool yaw of the last pose reached; None after a joint move
 
     # ------------------------------------------------------------ measured state
     def _on_joint_state(self, msg: JointState) -> None:
@@ -257,7 +259,8 @@ class KinovaArm(Node):
 
     # ------------------------------------------------------------------- motion
     @staticmethod
-    def _top_down_pose(x: float, y: float, z: float) -> Pose:
+    def _top_down_pose(x: float, y: float, z: float, yaw: float = 0.0) -> Pose:
+        """Gripper straight down at (x, y, z), turned by ``yaw`` about the vertical."""
         pose = Pose()
         pose.position.x, pose.position.y, pose.position.z = float(x), float(y), float(z)
         (
@@ -265,7 +268,7 @@ class KinovaArm(Node):
             pose.orientation.y,
             pose.orientation.z,
             pose.orientation.w,
-        ) = TOP_DOWN
+        ) = top_down_quaternion(yaw)
         return pose
 
     def _run(self, describe: str, speed: float, attempts: int, retry_execution: bool, **plan_arguments) -> bool:
@@ -296,23 +299,72 @@ class KinovaArm(Node):
 
     def move_to_joints(self, joint_positions: List[float], speed: float = 0.1, attempts: int = 3) -> bool:
         """Plan and execute a joint-space motion."""
+        self._yaw = None   # wherever this ends, the tool is no longer in a known top-down orientation
         return self._run("a joint-space motion", speed, attempts, True, joint_positions=list(joint_positions))
 
     def move_to_pose(
-        self, x: float, y: float, z: float, cartesian: bool = False, speed: float = 0.1, attempts: int = 3
+        self,
+        x: float,
+        y: float,
+        z: float,
+        cartesian: bool = False,
+        speed: float = 0.1,
+        attempts: int = 3,
+        grip: Optional[float] = None,
+        then_z: Optional[float] = None,
     ) -> bool:
         """Move end_effector_link to (x, y, z) in base_link, gripper pointing down.
+
+        ``grip`` is the angle (rad, base_link, from +x) of the line the fingers are to open along;
+        None keeps the Lab 6 orientation (fingers opening along y). Either of two tool yaws half a
+        turn apart gives that line; the one nearer to where the arm is gets tried first.
+        ``then_z``: the tool will next be lowered to this height at the same x, y, so a yaw is
+        preferred that has joint angles there as well.
 
         cartesian=True moves in a straight line, and only if the whole line can be planned. If a
         straight-line motion fails while executing (e.g. it touched something) it is not retried.
         """
         kind = "a straight-line motion" if cartesian else "a pose-goal motion"
-        arguments = self._pose_arguments(x, y, z, cartesian)
-        return self._run(f"{kind} to ({x:.3f}, {y:.3f}, {z:.3f})", speed, attempts, not cartesian, **arguments)
+        for yaw in self._yaw_candidates(x, y, z, grip, cartesian, then_z):
+            arguments = self._pose_arguments(x, y, z, cartesian, yaw)
+            turned = "" if grip is None else f", tool yaw {math.degrees(yaw):.0f} deg"
+            self.get_logger().debug(f"{kind} to ({x:.3f}, {y:.3f}, {z:.3f}){turned}")
+            if self._run(f"{kind} to ({x:.3f}, {y:.3f}, {z:.3f}){turned}", speed, attempts, not cartesian, **arguments):
+                self._yaw = yaw
+                return True
+            if self._started:
+                self._yaw = None   # it stopped somewhere on the way: orientation unknown
+                return False
+        return False
 
-    def _pose_arguments(self, x: float, y: float, z: float, cartesian: bool) -> dict:
+    def _yaw_candidates(
+        self, x: float, y: float, z: float, grip: Optional[float], cartesian: bool, then_z: Optional[float] = None
+    ) -> List[float]:
+        """The tool yaws to try, best first. A straight line gets one candidate only: if that
+        line cannot be planned, the caller decides what to do next."""
+        if grip is None:
+            return [0.0]
+        yaws = list(grip_yaws(float(grip)))
+        current = [self._joint_positions.get(name) for name in ARM_JOINTS]
+
+        def cost(yaw: float):
+            found = top_down_solutions(x, y, z, yaw)
+            if found and then_z is not None and not top_down_solutions(x, y, then_z, yaw):
+                found = []                 # it could get there but not down to the piece
+            if self._yaw is not None:      # coming from a known top-down pose: the smaller turn
+                turn = abs(math.atan2(math.sin(yaw - self._yaw), math.cos(yaw - self._yaw)))
+            elif found and all(value is not None for value in current):   # from WORK or parking
+                turn = min(max(abs(a - b) for a, b in zip(q, current)) for q in found)
+            else:
+                turn = 0.0
+            return (not found, turn)       # a yaw the arm cannot reach at all goes last
+
+        yaws.sort(key=cost)
+        return yaws[:1] if cartesian else yaws
+
+    def _pose_arguments(self, x: float, y: float, z: float, cartesian: bool, yaw: float = 0.0) -> dict:
         return {
-            "pose": self._top_down_pose(x, y, z),
+            "pose": self._top_down_pose(x, y, z, yaw),
             "cartesian": cartesian,
             "cartesian_fraction_threshold": 0.999 if cartesian else 0.0,
             self._step_argument: 0.005,
@@ -359,9 +411,10 @@ class KinovaArm(Node):
             return False
         return response is not None and response.error_code.val == MoveItErrorCodes.SUCCESS
 
-    def can_reach(self, x: float, y: float, z: float) -> bool:
+    def can_reach(self, x: float, y: float, z: float, grip: Optional[float] = None) -> bool:
         """True if MoveIt accepts joint angles for the top-down pose at (x, y, z): inside the
         joint limits and touching neither the table nor the arm itself. Nothing moves.
+        ``grip`` as in move_to_pose: with it, either of the two equivalent tool yaws will do.
 
         MoveIt's solver, left alone, starts from one guess and gives up after a few milliseconds;
         it then misses most solutions that exist (the first run in Gazebo marked squares
@@ -369,13 +422,21 @@ class KinovaArm(Node):
         offered to MoveIt as starting points, which it only has to confirm. MoveIt's own search
         is still asked afterwards, so a mistake in our kinematics cannot hide a reachable pose.
         """
+        yaws = [0.0] if grip is None else list(grip_yaws(float(grip)))
         if not self._ik_ready():
-            arguments = self._pose_arguments(x, y, z, cartesian=False)
-            return self.moveit2.plan(**arguments, **self._plan_extra) is not None
-        pose = self._top_down_pose(x, y, z)
-        seeds: List[Optional[List[float]]] = list(top_down_solutions(x, y, z)[:IK_SEEDS])
-        seeds += [None] * IK_UNSEEDED_TRIES
-        return any(self._moveit_ik(pose, seed) for seed in seeds)
+            return any(
+                self.moveit2.plan(**self._pose_arguments(x, y, z, False, yaw), **self._plan_extra) is not None
+                for yaw in yaws
+            )
+        for yaw in yaws:   # our own solutions first, for every yaw, before MoveIt's slow search
+            pose = self._top_down_pose(x, y, z, yaw)
+            if any(self._moveit_ik(pose, seed) for seed in top_down_solutions(x, y, z, yaw)[:IK_SEEDS]):
+                return True
+        return any(
+            self._moveit_ik(self._top_down_pose(x, y, z, yaw), None)
+            for yaw in yaws
+            for _ in range(IK_UNSEEDED_TRIES)
+        )
 
     # ------------------------------------------------------------------ gripper
     def _move_fingers(self, position: float, timeout: float) -> Optional[float]:

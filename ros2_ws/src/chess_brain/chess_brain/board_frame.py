@@ -94,12 +94,24 @@ class Locations:
             raise ValueError("DISCARD is not a pick location")
         return self.frame.world_xyz(key)
 
+    def discard_slot_board_xy(self, index: int) -> XY:
+        """Position of discard slot ``index`` (0, 1, 2, ...) in the board frame."""
+        column, row = divmod(int(index), self.discard_per_column)
+        return (self.discard_first[0] - column * self.discard_step, self.discard_first[1] + row * self.discard_step)
+
     def discard_slot_xyz(self, index: int) -> XYZ:
         """World position of discard slot ``index`` (0, 1, 2, ...)."""
-        column, row = divmod(int(index), self.discard_per_column)
-        bx = self.discard_first[0] - column * self.discard_step
-        by = self.discard_first[1] + row * self.discard_step
-        return self._offboard(bx, by)
+        return self._offboard(*self.discard_slot_board_xy(index))
+
+    def board_xy(self, name: str, discard_offset: int = 0) -> XY:
+        """Board-frame position of any location name: a square, a spare, or ``DISCARD`` (the next
+        free slot + ``discard_offset``)."""
+        key = str(name).strip()
+        if key.upper() == DISCARD:
+            return self.discard_slot_board_xy(self.discarded + discard_offset)
+        if key.upper() in self.spares:
+            return self.spares[key.upper()]
+        return self.frame.board_xy(key)
 
     def place_xyz(self, name: str, discard_offset: int = 0) -> XYZ:
         """Where to put down: a square, or the next free discard slot (+ ``discard_offset``).

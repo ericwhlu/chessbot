@@ -13,6 +13,9 @@ The arm team plugs in ONE function (see arm_adapter.py for its contract). This n
 * the same move re-sent while its first copy is still running is never executed twice: the second
   copy is answered with the first copy's result;
 * ``reset`` on ``chessbot/cmd`` frees the discard slots for a new game;
+* when chess_brain says which squares are occupied, it chooses for every action the direction
+  the gripper should open along so that its fingers stay clear of the other pieces
+  (grip_direction.py) and hands it to the executor; ``-p grip_direction:=fixed`` turns that off;
 * if the executor function has a ``prepare`` attribute (a function without arguments), it is
   called once at start-up, before any command: the place to bring the arm up;
 * if it has an ``operator`` attribute, every command on ``chessbot/cmd`` is passed to it.
@@ -39,6 +42,7 @@ from std_msgs.msg import String
 
 from .arm_adapter import make_dry_run_executor, run_command
 from .board_params import declare_board_parameters, locations_from_parameters
+from .grip_direction import Fingers
 from .plugins import load_callable
 
 
@@ -51,6 +55,9 @@ class ArmAdapterNode(Node):
 
         self.declare_parameter("executor", "")     # "package.module:function"; empty = dry run
         declare_number("dry_run_time", 1.0)        # s per action in dry-run mode
+        self.declare_parameter("grip_direction", "auto")   # auto = chosen per action; fixed = the arm's default
+        declare_number("grip_gap", Fingers.gap)                    # m between the open fingers (model)
+        declare_number("grip_piece_radius", Fingers.piece_radius)  # m, another piece at finger height (model)
         declare_board_parameters(self)             # board_x, board_y, board_yaw_deg, surface_z, ...
 
         def number(name):
@@ -58,6 +65,11 @@ class ArmAdapterNode(Node):
 
         self._locations = locations_from_parameters(self)
         frame = self._locations.frame
+        how = str(self.get_parameter("grip_direction").value).strip().lower()
+        if how not in ("auto", "fixed"):
+            raise ValueError(f"grip_direction must be auto or fixed, not {how!r}")
+        self._grips = how == "auto"
+        self._fingers = Fingers(gap=number("grip_gap"), piece_radius=number("grip_piece_radius"))
 
         spec = str(self.get_parameter("executor").value).strip()
         if spec:
@@ -88,7 +100,7 @@ class ArmAdapterNode(Node):
         a1, h8 = frame.world_xyz("a1"), frame.world_xyz("h8")
         self.get_logger().info(
             f"arm_adapter ready: {mode}; a1 at ({a1[0]:.3f}, {a1[1]:.3f}, {a1[2]:.4f}), "
-            f"h8 at ({h8[0]:.3f}, {h8[1]:.3f}, {h8[2]:.4f})"
+            f"h8 at ({h8[0]:.3f}, {h8[1]:.3f}, {h8[2]:.4f}); grip direction: {how}"
         )
 
     # ----------------------------------------------------------------- callbacks
@@ -143,7 +155,7 @@ class ArmAdapterNode(Node):
                 return "arm_adapter is shutting down"
             return self._pick_and_place(pick_xyz, place_xyz, info)
 
-        self._replies.put((payload, run_command(payload, self._locations, guarded)))
+        self._replies.put((payload, run_command(payload, self._locations, guarded, self._fingers, self._grips)))
 
     def _tick(self) -> None:
         while True:

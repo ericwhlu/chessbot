@@ -40,7 +40,7 @@ from typing import Any, Callable, List, Optional, Tuple
 
 import chess
 
-from .actions import UnsupportedMove, actions_payload, move_to_actions
+from .actions import UnsupportedMove, actions_payload, move_to_actions, occupied_squares
 from .game import GameState, canonical_placement
 
 
@@ -348,7 +348,11 @@ class BrainMachine:
         self._force_retry = False
         self._action_id += 1
         self._sent_at = now
-        self._out.append(("arm_actions", actions_payload(self._action_id, self._pending_move, self._pending_actions)))
+        # The move is applied only after arm_done, so the board here is still the one the arm sees.
+        occupied = occupied_squares(self.game.board)
+        self._out.append(
+            ("arm_actions", actions_payload(self._action_id, self._pending_move, self._pending_actions, occupied))
+        )
         self._set(State.EXECUTING, "executing", self._pending_move.uci())
 
     def _take_arm_done(self) -> Optional[dict]:

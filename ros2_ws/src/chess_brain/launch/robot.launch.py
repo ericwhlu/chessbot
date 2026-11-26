@@ -44,9 +44,13 @@ ARM = {
     "board_y": ("0.0", float, "world y of the board's a1 corner (m)"),
     "board_yaw_deg": ("0.0", float, "rotation of the board about +Z (degrees)"),
     "surface_z": ("0.00656168", float, "world z of the playing surface (m)"),
+    "square_size": ("0.05", float, "size of one square (m)"),
     "discard_x": ("-0.075", float, "first discard slot, board frame x (m)"),
     "discard_y": ("0.025", float, "first discard slot, board frame y (m)"),
     "offboard_drop": ("0.0", float, "discard slots and spares are this far below the surface (m)"),
+    "grip_direction": ("auto", str, "auto = the gripper turns to stay clear of the other pieces; fixed = never"),
+    "grip_gap": ("0.040", float, "width between the open fingers assumed when choosing the direction (m)"),
+    "grip_piece_radius": ("0.0125", float, "radius of a piece at finger height assumed for that (m)"),
 }
 # Used by executor:=chess_brain.kinova_executor:pick_and_place (the course's Kinova Gen3 Lite).
 KINOVA = {

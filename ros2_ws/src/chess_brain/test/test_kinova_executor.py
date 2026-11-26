@@ -39,6 +39,8 @@ class FakeArm:
     def __init__(self, pieces=(PICK,), fail_pose=None, fail_joints=(), blocked=None, ready=True,
                  dead_opens=(), dead_closes=(), safe_z=TRAVEL, low_z=RELEASE + 0.001):
         self.calls = []
+        self.grips = []                 # (x, y, z, cartesian, grip, then_z) of every pose move
+        self.grip = None                # the line the fingers open along now (None = the default)
         self.violations = []
         self.pieces = {key(p[0], p[1]) for p in pieces}   # where pieces stand
         self.position = None            # (x, y, z) of the gripper; None = at a joint pose, clear of the board
@@ -78,15 +80,16 @@ class FakeArm:
         self.position = None
         return True
 
-    def move_to_pose(self, x, y, z, cartesian=False, speed=0.1):
+    def move_to_pose(self, x, y, z, cartesian=False, speed=0.1, grip=None, then_z=None):
         self.calls.append(("pose", round(x, 6), round(y, 6), round(z, 6), cartesian, speed))
+        self.grips.append((round(x, 6), round(y, 6), round(z, 6), cartesian, grip, then_z))
         index, self._poses = self._poses, self._poses + 1
         self._started = False
         if self.raise_on_pose == index:
             raise RuntimeError("controller died")
         mode = self.fail_pose.get(index) or ("plan" if self.blocked(x, y, z, cartesian) else None)
         no_line_to, self._no_line_to = self._no_line_to, None
-        if self.position is not None and self.position == (x, y, z):
+        if self.position is not None and self.position == (x, y, z) and grip == self.grip:
             self.violations.append("zero-length motion requested")
         if mode == "plan":
             if cartesian:
@@ -106,7 +109,10 @@ class FakeArm:
             start = self.position or (x, y, self.safe_z)
             self.position = tuple((a + b) / 2.0 for a, b in zip(start, (x, y, z)))
             return False
+        if z < self.safe_z - 1e-9 and self.position is not None and grip != self.grip:
+            self.violations.append("the gripper was turned while moving down among the pieces")
         self.position = (x, y, z)
+        self.grip = grip
         return True
 
     def open_gripper(self, position=0.0):
@@ -647,3 +653,65 @@ def test_reach_map_of_a_fully_reachable_board():
     lines = format_reach(table)
     assert "squares fully reachable: 64 of 64" in lines[9]
     assert not any("not fully reachable" in line for line in lines)
+
+
+# ------------------------------------------------------------------ grip directions
+GRIP_INFO = dict(INFO, pick_grip=math.radians(45.0), place_grip=math.radians(135.0), grip_clearance=0.011)
+
+
+def test_the_grip_direction_is_used_at_the_pick_and_at_the_place():
+    arm = FakeArm()
+    assert PickPlace(arm, S)(PICK, PLACE, GRIP_INFO) is None
+    assert arm.violations == []
+    at_pick = [g for g in arm.grips if (g[0], g[1]) == PICK[:2]]
+    at_place = [g for g in arm.grips if (g[0], g[1]) == PLACE[:2]]
+    assert [g[4] for g in at_pick] == [GRIP_INFO["pick_grip"]] * 3      # above, down, up
+    assert [g[4] for g in at_place] == [GRIP_INFO["place_grip"]] * 3    # above (turning on the way), down, up
+    # the arm is told how far down it will go next, so it can pick a yaw that reaches both heights
+    assert at_pick[0][5] == pytest.approx(GRIP) and at_place[0][5] == pytest.approx(RELEASE)
+    assert at_pick[1][5] is None and at_pick[2][5] is None
+
+
+def test_without_a_grip_direction_the_arm_is_called_as_before():
+    class OldArm(FakeArm):   # an arm written before grip directions existed
+        def move_to_pose(self, x, y, z, cartesian=False, speed=0.1):
+            return super().move_to_pose(x, y, z, cartesian, speed)
+
+    arm = OldArm()
+    assert PickPlace(arm, S)(PICK, PLACE, INFO) is None
+    assert all(g[4] is None for g in arm.grips)
+
+
+def test_a_grip_direction_that_is_not_a_number_is_ignored():
+    arm = FakeArm()
+    assert PickPlace(arm, S)(PICK, PLACE, dict(INFO, pick_grip="north", place_grip=float("nan"))) is None
+    assert all(g[4] is None for g in arm.grips)
+
+
+def test_a_failed_carry_puts_the_piece_back_with_the_grip_it_was_picked_with():
+    # the place can never be reached: the piece goes back to its square, fingers as at the pick
+    arm = FakeArm(blocked=lambda x, y, z, cartesian: key(x, y) == key(*PLACE[:2]))
+    reason = PickPlace(arm, S)(PICK, PLACE, GRIP_INFO)
+    assert "put back on e2" in reason and arm.violations == []
+    back = [g for g in arm.grips if (g[0], g[1]) == PICK[:2]][3:]
+    assert back and all(g[4] == GRIP_INFO["pick_grip"] for g in back)
+
+
+def test_turning_on_the_spot_is_a_move_not_a_shortcut():
+    # second action starts where the first ended, but wants the fingers along another line
+    arm = FakeArm(pieces=(PICK, PLACE))
+    runner = PickPlace(arm, S)
+    first = dict(INFO, last=False, pick_grip=0.0, place_grip=0.0)
+    assert runner(PICK, (0.30, 0.10, SURFACE), first) is None
+    second = dict(INFO, pick="e4", place="e6", pick_grip=math.pi / 2, place_grip=math.pi / 2)
+    assert runner((0.30, 0.10, SURFACE), (0.40, 0.10, SURFACE), second) is None
+    assert arm.violations == []
+    turn = [g for g in arm.grips if g[4] == math.pi / 2][0]
+    assert (turn[0], turn[1], turn[2]) == (0.30, 0.10, round(TRAVEL, 6))   # turned at the carrying height
+
+
+def test_the_same_line_given_half_a_turn_apart_needs_no_move():
+    assert kinova_executor._same_line(0.25, 0.25 + math.pi)
+    assert kinova_executor._same_line(None, None)
+    assert not kinova_executor._same_line(None, 0.0)
+    assert not kinova_executor._same_line(0.0, math.pi / 2)

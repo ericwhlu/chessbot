@@ -21,6 +21,8 @@ The ``arm`` interface (kinova_arm.KinovaArm implements it):
     add_table() -> None
     move_to_joints(joints, speed) -> bool
     move_to_pose(x, y, z, cartesian=False, speed=...) -> bool   # end_effector_link, gripper down
+        # with a grip direction it is also called with grip=<angle of the line the fingers
+        # open along, rad, world frame> and then_z=<height it will be lowered to next, or None>
     last_move_started() -> bool      # did the last move_to_* get as far as moving the arm?
     open_gripper(position) -> float | None                      # measured finger position
     close_gripper() -> float | None
@@ -41,6 +43,7 @@ here depends on where the board is. What must be tuned on the real arm are the n
 
 from __future__ import annotations
 
+import math
 import threading
 from dataclasses import dataclass
 from typing import Callable, Optional, Sequence, Tuple
@@ -56,9 +59,11 @@ WORK = (0.40, 0.02, 2.27, -1.57, -0.84, 1.97)
 RETRACT = (-0.0527, 0.3669, 2.59, -1.5359, -0.6988, -1.5189)
 PARK_POSES = {"work": WORK, "retract": RETRACT}
 
-# Finger joint: 0.0 = fully open (about 111 mm between the fingertips), 0.8 = closed on nothing.
-# Lab 6 readings: 0.80 with nothing in the fingers, about 0.44 on a 50 mm block, so the opening
-# is roughly 111 mm * (1 - position / 0.8).
+# Finger joint: 0.0 = fully open (about 111 mm between the fingertips), 0.8 = the close command.
+# Lab 6 readings (Gazebo): 0.80 with nothing in the fingers, about 0.44 on a 50 mm block; a
+# straight line through them gives 111 mm * (1 - position / 0.8). The manufacturer's finger
+# meshes give a wider opening for the same reading (about 60 mm at 0.5). Neither has been
+# measured on the real gripper: set open_position and missed_reading from measurements.
 FINGER_CLOSED = 0.8
 FINGER_TOLERANCE = 0.06   # an "open" within this of open_position counts as done
 FINGER_MOVED = 0.01       # a "close" must end at least this far past open_position
@@ -73,8 +78,8 @@ class Settings:
     grip_height: float = 0.020       # fingertips above the square when closing on a piece (m)
     travel_clearance: float = 0.150  # fingertips above the board while moving between squares (m)
     place_clearance: float = 0.003   # a piece is released this much higher than it was gripped (m)
-    open_position: float = 0.50      # finger joint when open over the board (about 42 mm; a
-    #                                  fully open gripper is wider than two squares' pieces allow)
+    open_position: float = 0.50      # finger joint when open over the board (42 to 60 mm, see
+    #                                  above; fully open is wider than the neighbours allow)
     speed: float = 0.2               # velocity/acceleration scaling of the moves at carrying height
     slow_speed: float = 0.1          # ... of the straight descents and lifts
     max_speed: float = LAB_SPEED_LIMIT  # upper limit for both; only a simulation may raise it
@@ -129,9 +134,9 @@ class PickPlace:
         self._log = log or (lambda text: None)
         self._ready = False
         self._holding: Optional[str] = None  # square whose piece is (or may be) in the closed gripper
-        self._low: Optional[XYZ] = None      # (x, y, carrying z): the arm may be below carrying height there
+        self._low: Optional[tuple] = None    # (x, y, carrying z, grip): the arm may be below carrying height there
         self._over = False                   # the arm is at carrying height over the board (not parked)
-        self._at: Optional[XYZ] = None       # ... and exactly here, if known
+        self._at: Optional[tuple] = None     # ... and exactly here (x, y, z, grip), if known
 
     # ------------------------------------------------------------------ start-up
     def prepare(self) -> Optional[str]:
@@ -167,17 +172,23 @@ class PickPlace:
             return "the arm is still low over the board after an earlier failure and cannot lift straight up"
 
         travel = s.travel_z(max(pz, qz))  # one carrying height for the whole action
+        # Lines the fingers open along at the pick and at the place (rad, world frame), chosen by
+        # arm_adapter from the squares that are occupied; None = the arm's own default.
+        g_pick, g_place = _angle(info.get("pick_grip")), _angle(info.get("place_grip"))
+        grips = "" if g_pick is None and g_place is None else (
+            f"; fingers open along {_degrees(g_pick)} at the pick, {_degrees(g_place)} at the place"
+        )
         self._log(
             f"action {int(info.get('index', 0)) + 1}/{info.get('count', 1)}: {pick_name} "
-            f"({px:.3f}, {py:.3f}) -> {place_name} ({qx:.3f}, {qy:.3f})"
+            f"({px:.3f}, {py:.3f}) -> {place_name} ({qx:.3f}, {qy:.3f}){grips}"
         )
 
         # ---- pick: nothing is held yet, so a failure here leaves the board as it was
-        if not self._transit(px, py, travel):
+        if not self._transit(px, py, travel, g_pick, s.grip_z(pz)):
             return self._fail_empty(f"could not reach above {pick_name}")
         if not self._open():
             return self._fail_empty("the gripper did not open")
-        if not self._descend(px, py, s.grip_z(pz), travel):
+        if not self._descend(px, py, s.grip_z(pz), travel, g_pick):
             return self._fail_empty(f"could not descend onto {pick_name}")
         reading = arm.close_gripper()
         if reading is None:
@@ -196,16 +207,16 @@ class PickPlace:
         # ---- carry
         if not self._rise():
             return self._fail_holding(f"could not lift the piece from {pick_name}")
-        if not self._transit(qx, qy, travel):
-            return self._put_back(f"could not reach above {place_name}", pick_name, (px, py, pz), travel)
+        if not self._transit(qx, qy, travel, g_place, s.release_z(qz)):
+            return self._put_back(f"could not reach above {place_name}", pick_name, (px, py, pz), travel, g_pick)
         if s.grasp_check:
             reading = arm.finger_position()
             if reading is None or reading >= s.missed_reading:
                 self._holding = None
                 self._park()
                 return f"the piece from {pick_name} is no longer in the gripper: it was lost on the way to {place_name}"
-        if not self._descend(qx, qy, s.release_z(qz), travel):
-            return self._put_back(f"could not descend onto {place_name}", pick_name, (px, py, pz), travel)
+        if not self._descend(qx, qy, s.release_z(qz), travel, g_place):
+            return self._put_back(f"could not descend onto {place_name}", pick_name, (px, py, pz), travel, g_pick)
 
         # ---- release
         if not self._open():
@@ -225,33 +236,47 @@ class PickPlace:
         probe = getattr(self._arm, "last_move_started", None)
         return True if probe is None else bool(probe())
 
-    def _transit(self, x: float, y: float, travel: float) -> bool:
-        """Go above (x, y) at the carrying height. Over the board that is a straight line, so the
-        arm cannot swing through the pieces; only if no straight line can be planned, or when
-        coming from the parking pose, MoveIt chooses the path."""
-        arm, s = self._arm, self._s
-        target = (x, y, travel)
-        if self._at is not None and all(abs(a - b) < 1e-6 for a, b in zip(self._at, target)):
-            return True  # already there
+    def _pose(self, x: float, y: float, z: float, grip: Optional[float], then_z: Optional[float] = None, **how) -> bool:
+        """One pose move. The grip direction is only handed on when there is one, so an arm
+        written before grip directions existed keeps working."""
+        if grip is None:
+            return bool(self._arm.move_to_pose(x, y, z, **how))
+        return bool(self._arm.move_to_pose(x, y, z, grip=grip, then_z=then_z, **how))
+
+    def _transit(
+        self, x: float, y: float, travel: float, grip: Optional[float] = None, then_z: Optional[float] = None
+    ) -> bool:
+        """Go above (x, y) at the carrying height, the fingers turned to open along ``grip``. Over
+        the board that is a straight line, so the arm cannot swing through the pieces; only if no
+        straight line can be planned, or when coming from the parking pose, MoveIt chooses the
+        path. ``then_z`` is the height the gripper will be lowered to next."""
+        s = self._s
+        target = (x, y, travel, grip)
+        if (
+            self._at is not None
+            and all(abs(a - b) < 1e-6 for a, b in zip(self._at[:3], target[:3]))
+            and _same_line(self._at[3], grip)
+        ):
+            return True  # already there, and turned the right way
         if self._over:
-            if arm.move_to_pose(x, y, travel, cartesian=True, speed=s.speed):
+            if self._pose(x, y, travel, grip, then_z, cartesian=True, speed=s.speed):
                 self._at = target
                 return True
             if self._moved():
                 self._at = None  # it stopped somewhere on the line: do not push on along another path
                 return False
             self._log(f"no straight line to ({x:.3f}, {y:.3f}); letting MoveIt choose a path")
-        if arm.move_to_pose(x, y, travel, speed=s.speed):
+        if self._pose(x, y, travel, grip, then_z, speed=s.speed):
             self._over, self._at = True, target
             return True
         if self._moved():
             self._over, self._at = False, None
         return False
 
-    def _descend(self, x: float, y: float, z: float, travel: float) -> bool:
+    def _descend(self, x: float, y: float, z: float, travel: float, grip: Optional[float] = None) -> bool:
         above, self._at = self._at, None
-        self._low = (x, y, travel)
-        if self._arm.move_to_pose(x, y, z, cartesian=True, speed=self._s.slow_speed):
+        self._low = (x, y, travel, grip)
+        if self._pose(x, y, z, grip, cartesian=True, speed=self._s.slow_speed):
             return True
         if not self._moved():
             self._low, self._at = None, above  # never started: still at the carrying height
@@ -261,9 +286,9 @@ class PickPlace:
         """Straight up to the carrying height, if the arm is (or may be) below it."""
         if self._low is None:
             return True
-        x, y, travel = self._low
-        if self._arm.move_to_pose(x, y, travel, cartesian=True, speed=self._s.slow_speed):
-            self._low, self._over, self._at = None, True, (x, y, travel)
+        x, y, travel, grip = self._low
+        if self._pose(x, y, travel, grip, cartesian=True, speed=self._s.slow_speed):
+            self._low, self._over, self._at = None, True, (x, y, travel, grip)
             return True
         return False
 
@@ -319,13 +344,16 @@ class PickPlace:
             "and put it back on its square, then send 'retry'"
         )
 
-    def _put_back(self, reason: str, pick_name: str, pick_xyz: XYZ, travel: float) -> str:
-        """The target could not be reached while carrying: return the piece to where it came from."""
+    def _put_back(
+        self, reason: str, pick_name: str, pick_xyz: XYZ, travel: float, grip: Optional[float] = None
+    ) -> str:
+        """The target could not be reached while carrying: return the piece to where it came from,
+        the fingers turned as they were when it was picked up."""
         px, py, pz = pick_xyz
         returned = (
             self._rise()
-            and self._transit(px, py, travel)
-            and self._descend(px, py, self._s.release_z(pz), travel)
+            and self._transit(px, py, travel, grip, self._s.release_z(pz))
+            and self._descend(px, py, self._s.release_z(pz), travel, grip)
             and self._open()
         )
         if not returned:
@@ -334,6 +362,26 @@ class PickPlace:
         if self._rise():
             self._park()
         return f"{reason}; the piece was put back on {pick_name}"
+
+
+def _angle(value) -> Optional[float]:
+    """A grip direction from ``info``: a finite number of radians, or None."""
+    try:
+        angle = float(value)
+    except (TypeError, ValueError):
+        return None
+    return angle if math.isfinite(angle) else None
+
+
+def _same_line(a: Optional[float], b: Optional[float]) -> bool:
+    """Do two grip directions describe the same line? (A line has no sign: 0 and pi are one.)"""
+    if a is None or b is None:
+        return a is None and b is None
+    return abs(math.sin(a - b)) < 1e-6
+
+
+def _degrees(angle: Optional[float]) -> str:
+    return "the default" if angle is None else f"{math.degrees(angle) % 180.0:.0f} deg"
 
 
 # --------------------------------------------------------------------------- the plug-in itself

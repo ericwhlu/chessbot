@@ -35,7 +35,7 @@ All topics are `std_msgs/String`.
 | Topic | Direction | Payload |
 |---|---|---|
 | `/chessbot/detected_fen` | vision → brain | piece-placement FEN, rank 8 → rank 1, a1 bottom-left in the image, e.g. `rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR` |
-| `/chessbot/arm_actions` | brain → arm | `{"id": 7, "move": "e7e5", "actions": [{"pick": "e7", "place": "e5"}]}` |
+| `/chessbot/arm_actions` | brain → arm | `{"id": 7, "move": "e7e5", "actions": [{"pick": "e7", "place": "e5"}], "occupied": ["a1", "a2", …]}`. `occupied` = every square holding a piece before the first action; the arm side may use it to keep the gripper clear of the other pieces, or ignore it |
 | `/chessbot/arm_done` | arm → brain | `{"id": 7, "status": "ok"}` or `{"id": 7, "status": "failed", "reason": "grasp"}` |
 | `/chessbot/status` | brain → anyone | `{"state", "status", "detail", "fen", "expected_placement", "turn", "check", "result", "move_id"}` (latched) |
 | `/chessbot/board_state` | brain → anyone | full 6-field FEN after every applied move (latched) |
@@ -286,13 +286,44 @@ of 2026-10-15) the simulated gripper does not move
 | `grip_height` | `0.02` | fingertips above the square when closing on a piece (m) |
 | `travel_clearance` | `0.15` | fingertips above the board while carrying (m); must clear the tallest piece plus the carried one |
 | `place_clearance` | `0.003` | a piece is released this much higher than it was gripped (m) |
-| `open_position` | `0.5` | finger joint when open over the board. 0 = fully open (≈111 mm, wider than a 50 mm square allows); opening ≈ 111 mm × (1 − p/0.8), so 0.5 ≈ 42 mm |
+| `open_position` | `0.5` | finger joint when open over the board; 0 = fully open, wider than a square allows. **How wide 0.5 is has not been measured on the real gripper.** A straight line through the Lab 6 readings (0.80 closed, about 0.44 on a 50 mm block in Gazebo) gives about 42 mm; the manufacturer's finger meshes give about 60 mm, which touches the neighbouring pieces. Set it from a measured width |
 | `grasp_check` | `true` | check every finger command on the measured finger position: opened before descending, closed on *something*, still holding before the release, opened at the release |
 | `missed_reading` | `0.75` | a finger reading at or above this after closing means "no piece" |
 | `park` | `work` | where the arm waits between moves: `work` or `retract` (it must not hide the board from the camera) |
 | `add_table` | `true` | add the lab table and mount to MoveIt's planning scene |
 | `floor_z` | `-0.0627` | the tabletop; a `surface_z` that would send the fingertips below it is refused |
 | `gripper_length` | `0.157` | fingertips below `end_effector_link` (m), measured in Lab 6 with the fingers fully open |
+
+### Which way the gripper opens
+
+Seen from above, each finger is a block about 20 mm thick and 24 mm wide. Opening along the board's
+grid, the fingers reach towards the two nearest neighbours and pass a few millimetres from them;
+turned 45°, they reach towards the diagonal neighbours, which are 1.41 squares away. A 3D study with
+the manufacturer's finger meshes and the piece models (pieces on all eight neighbouring squares) gave
+about 4 to 6 mm along the grid and 8 to 9 mm on the diagonal, on 50 mm and on 40 mm squares alike.
+
+So the direction is chosen for every action. chess_brain sends the occupied squares with each command;
+`arm_adapter_node` picks, out of four directions (along a rank, along a file, the two diagonals), the one
+that keeps the open fingers farthest from the other pieces at the pick and at the place
+(`grip_direction.py`), and the executor turns the gripper before it descends. Rules of the choice:
+
+- more than 20 mm of room counts as enough: the gripper stays along the grid unless that is tight;
+- the piece is turned by a quarter turn or not at all while it is carried, so a square stem keeps its
+  faces along the grid;
+- filled discard slots count as pieces in the way.
+
+The model is a plan view (two rectangles, discs for the pieces) and only ranks directions; it is not a
+collision check. On the diagonal a square stem is held by two corners: round stems would be better.
+The arm's reach does not depend on the direction (the last joint turns about the vertical), so
+`reach_check` needs no change.
+
+| Parameter of `arm_adapter_node` | Default | Meaning |
+|---|---|---|
+| `grip_direction` | `auto` | `auto` = chosen per action as above; `fixed` = always the Lab 6 orientation (fingers opening along the arm's y axis) |
+| `grip_gap` | `0.040` | free width between the open fingers that the model assumes (m); set it to the measured width at `open_position` |
+| `grip_piece_radius` | `0.0125` | radius of another piece at finger height that the model assumes (m); scale it with the pieces |
+
+A hand-written command without `occupied` gets no direction and the Lab 6 orientation.
 
 What the sequence guarantees, whatever fails (each failure is reported on `arm_done` with its reason):
 
