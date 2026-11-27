@@ -15,7 +15,7 @@ from chess_brain.actions import actions_payload, move_to_actions
 from chess_brain.arm_adapter import PlacedButFailed, run_command
 from chess_brain.board_frame import BoardFrame, Locations
 from chess_brain.kinova_executor import RETRACT, WORK, PickPlace, Settings
-from chess_brain.reach_check import format_reach, reach_table
+from chess_brain.reach_check import GAME_DISCARDS, format_reach, kinematic_reach, reach_table
 
 SURFACE = -0.056
 S = Settings()
@@ -653,6 +653,62 @@ def test_reach_map_of_a_fully_reachable_board():
     lines = format_reach(table)
     assert "squares fully reachable: 64 of 64" in lines[9]
     assert not any("not fully reachable" in line for line in lines)
+
+
+def test_the_reach_map_covers_the_captured_pieces_of_a_whole_game():
+    # a game can capture every piece but the two kings; the 17th piece starts the third column
+    assert GAME_DISCARDS == 30
+    table = reach_table(Locations(), S.travel_z, S.grip_z, lambda x, y, z: True)
+    assert [name for name in table if name.startswith("DISCARD[")] == [f"DISCARD[{i}]" for i in range(30)]
+    lines = format_reach(table)
+    assert any("######## ######## ######## ######" in line for line in lines)
+    assert any("room for all 30 captured pieces" in line for line in lines)
+    assert not any("DISCARD[" in line for line in lines)        # nothing to complain about
+    assert any(line.strip().startswith("off-board:") and "SPARE_Q_W #" in line for line in lines)
+
+
+def test_the_reach_map_says_how_many_captured_pieces_fit():
+    locations = Locations()
+    out = {locations.discard_slot_xyz(i)[:2] for i in (16, 24, 25)}   # the far corner of the area
+    half = locations.discard_slot_xyz(26)[:2]                         # carrying height only
+
+    def can_reach(x, y, z):
+        if (x, y) in out:
+            return False
+        return not ((x, y) == half and z < S.travel_z(SURFACE) - 0.01)
+
+    table = reach_table(locations, S.travel_z, S.grip_z, can_reach)
+    lines = format_reach(table, locations.discard_per_column)
+    assert any("######## ######## .####### ..^###" in line for line in lines)
+    line = next(line for line in lines if "room for" in line)
+    # the places are filled in order, so the first one out of reach ends it: 16 pieces fit
+    assert "room for 16 captured pieces of the 30 places checked" in line
+    assert line.endswith("not fully reachable: DISCARD[16] DISCARD[24] DISCARD[25] DISCARD[26]")
+
+
+def test_the_reach_map_checks_as_many_places_as_asked():
+    table = reach_table(Locations(), S.travel_z, S.grip_z, lambda x, y, z: True, 8)
+    assert "DISCARD[7]" in table and "DISCARD[8]" not in table
+    assert any("room for all 8 captured pieces" in line for line in format_reach(table))
+    none = reach_table(Locations(), S.travel_z, S.grip_z, lambda x, y, z: True, 0)
+    assert not any("captured" in line for line in format_reach(none))
+
+
+def _slot_reachable(locations, index):
+    x, y, z = locations.discard_slot_xyz(index)
+    return kinematic_reach(x, y, S.travel_z(z)) and kinematic_reach(x, y, S.grip_z(z))
+
+
+def test_where_the_captured_pieces_of_a_40_mm_board_can_go():
+    """The 40 mm board that fits the Gen3 Lite (board_x 0.492, board_y -0.16, turned 90 degrees).
+    With the first place beside rank 2 the far corner of the area is beyond the arm's reach from
+    the 17th piece on; with it beside rank 4 a whole game fits. By the kinematics alone."""
+    frame = BoardFrame(origin_x=0.492, origin_y=-0.16, yaw=math.radians(90.0), surface_z=SURFACE, square=0.04)
+    far = Locations(frame=frame, discard_first=(-0.06, 0.06), offboard_drop=0.0066)
+    assert [_slot_reachable(far, i) for i in (15, 16, 17, 24, 25, 26)] == [True, False, True, False, False, True]
+    near = Locations(frame=frame, discard_first=(-0.05, 0.14), offboard_drop=0.0066)
+    assert all(_slot_reachable(near, i) for i in (0, 7, 15, 16, 23, 24, 25, 29))
+
 
 
 # ------------------------------------------------------------------ grip directions

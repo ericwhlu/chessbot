@@ -1,0 +1,89 @@
+Date: Thu 2026-11-26, about 21:15 to 21:40 (America/New_York)
+Machine: course VM vcm-54426, ROS 2 Jazzy in
+         ghcr.io/mems-intro-to-robotics/mems-robotics-toolkit:kinova-jazzy-20260924 (the image in which
+         the simulated gripper moves; see 2026-11-26_gazebo_gripper_image_regression.txt). Gazebo
+         station from the course's Lab 6 launch (Gen3 Lite, gen3_lite_2f gripper), MoveIt from
+         kinova_gen3_lite_moveit_config sim.launch.py use_sim_time:=true.
+Branch:  feature/integration @ 34c5958
+Test:    the grip directions (chess_brain/grip_direction.py: for every pick and place the gripper is
+         turned so that its fingers open along a line with room for them) with the course's MoveIt and
+         an arm that moves in Gazebo. Before this they had only run against MoveIt on mock hardware
+         (2026-11-26_integration_container_runs.txt). Run by David on the VM; the two logs below are
+         what he pasted back.
+
+Result: PASS.
+  1. robot.launch.py with the executor, 50 mm board, grasp_check off; a person pasted "start" and the
+     placement after e2e4 into operator_node. brain: human played e2e4 -> Stockfish d7d6 ->
+     arm_actions (with the occupied squares) -> arm -> arm_done ok -> robot played d7d6.
+     The arm adapter logs "grip direction: auto" and, for the move,
+     "fingers open along 135 deg at the pick, 135 deg at the place": a diagonal of the board.
+     The arm was at the WORK pose 14 s after MoveIt was ready; the move took 49 s from the command to
+     arm_done; no planning or execution warning.
+  2. Seen in the Gazebo window (David, on a further robot move of the same run; no log kept): the
+     gripper comes down over the piece turned 45 degrees to the edges of the table. Which of the two
+     diagonals it was was not checked by eye.
+  3. ros2 run tf2_ros tf2_echo end_effector_link right_finger_prox_link in the same environment:
+     translation (0.000, -0.031, 0.070). Kinova's public description of the gripper has
+     (0, -0.0305, 0.070) for the same joint, so in the course image, as there, the fingers sit on the
+     tool's y axis and open along it, which is what the grip directions assume, and the gripper's
+     base is at end_effector_link, which is what the estimate of the fingertip height assumes.
+
+Not shown: the gripper closing on a piece with the fingers turned (Gazebo has no chess pieces;
+grasp_check was off and "fingers closed at 0.80" is the gripper closing on nothing), a capture or
+castling with grip directions in Gazebo (single quiet moves only), the look at the board before a
+capture (no camera here: "NO DETECTOR"), the real arm.
+
+The first line of the tf2_echo output ("frame does not exist") is its usual message before the
+first transform arrives. Nine of its ten samples are left out; they have the same values.
+
+====================================================================================================
+1. ros2 launch chess_brain robot.launch.py (the whole terminal)
+====================================================================================================
+kinova:/chessbot/ros2_ws# ros2 launch chess_brain robot.launch.py use_sim_time:=true executor:=chess_brain.kinova_executor:pick_and_place board_x:=0.572 board_y:=-0.20 board_yaw_deg:=90 surface_z:=-0.056 offboard_drop:=0.0066 grasp_check:=false
+[INFO] [launch]: All log files can be found below /root/.ros/log/2026-11-27-02-17-01-499799-vcm-54426-928
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [brain_node-1]: process started with pid [931]
+[INFO] [vision_adapter_node-2]: process started with pid [932]
+[INFO] [arm_adapter_node-3]: process started with pid [933]
+[vision_adapter_node-2] [INFO] [1795745822.475898093] [vision_adapter]: vision_adapter ready: NO DETECTOR (set -p detector:=package.module:function); output fen; images from 'chessbot/camera/image'; detecting on request
+[brain_node-1] [INFO] [1795745822.841846198] [chess_brain]: chess_brain ready: engine=Stockfish 16 (/usr/games/stockfish), robot=black, stable_time=1s, allow_promotion=False, first arm_actions id=582201
+[brain_node-1] [INFO] [1795745822.906629244] [chess_brain]: status: setup / setup waiting for a stable detection of the start position (or cmd: start)
+[arm_adapter_node-3] [WARN] [1795745822.931293731] [arm_adapter]: preparing the executor now: THE ARM MAY MOVE
+[arm_adapter_node-3] [INFO] [1795745822.933011500] [arm_adapter]: arm_adapter ready: executor chess_brain.kinova_executor:pick_and_place; a1 at (0.547, -0.175, -0.0560), h8 at (0.197, 0.175, -0.0560); grip direction: auto; looking at the board before moving: off
+[arm_adapter_node-3] [INFO] [1795745823.524807452] [chess_kinova_arm]: kinova_executor: Settings(gripper_length=0.157, grip_height=0.02, travel_clearance=0.15, place_clearance=0.003, open_position=0.5, speed=0.2, slow_speed=0.1, max_speed=1.0, grasp_check=False, missed_reading=0.75, park='work', floor_z=-0.0627)
+[vision_adapter_node-2] [WARN] [1795745823.565873982] [vision_adapter]: detection requested (setup) but no detector is configured
+[arm_adapter_node-3] [INFO] [1795745825.382782618] [chess_kinova_arm]: MoveIt is ready.
+[arm_adapter_node-3] [INFO] [1795745825.405611975] [chess_kinova_arm]: end_effector_link: this package's kinematics and MoveIt differ by 0.00 mm.
+[arm_adapter_node-3] [INFO] [1795745825.911415245] [chess_kinova_arm]: Added the table and mount to MoveIt's planning scene.
+[arm_adapter_node-3] [INFO] [1795745839.674260652] [chess_kinova_arm]: arm ready at the WORK pose
+[arm_adapter_node-3] [INFO] [1795745839.674589942] [arm_adapter]: executor prepared: the arm is ready
+[brain_node-1] [INFO] [1795745858.106768896] [chess_brain]: status: wait_human / waiting_human 
+[brain_node-1] [INFO] [1795745871.610589281] [chess_brain]: human played e2e4
+[brain_node-1] [INFO] [1795745871.617152600] [chess_brain]: status: thinking / thinking 
+[brain_node-1] [INFO] [1795745872.206248681] [chess_brain]: arm_actions: {'id': 582201, 'move': 'd7d6', 'actions': [{'pick': 'd7', 'place': 'd6'}], 'occupied': ['a1', 'a2', 'a7', 'a8', 'b1', 'b2', 'b7', 'b8', 'c1', 'c2', 'c7', 'c8', 'd1', 'd2', 'd7', 'd8', 'e1', 'e4', 'e7', 'e8', 'f1', 'f2', 'f7', 'f8', 'g1', 'g2', 'g7', 'g8', 'h1', 'h2', 'h7', 'h8']}
+[brain_node-1] [INFO] [1795745872.209552040] [chess_brain]: status: executing / executing d7d6
+[arm_adapter_node-3] [INFO] [1795745872.234385884] [arm_adapter]: arm_actions: id 582201 move d7d6 (1 action(s))
+[arm_adapter_node-3] [INFO] [1795745872.253321542] [chess_kinova_arm]: action 1/1: d7 (0.247, -0.025) -> d6 (0.297, -0.025); fingers open along 135 deg at the pick, 135 deg at the place
+[arm_adapter_node-3] [INFO] [1795745887.338887860] [chess_kinova_arm]: d7: fingers closed at 0.80
+[arm_adapter_node-3] [INFO] [1795745921.634069643] [arm_adapter]: arm_done: id 582201 ok
+[brain_node-1] [INFO] [1795745921.709075204] [chess_brain]: robot played d7d6
+[brain_node-1] [INFO] [1795745921.711842603] [chess_brain]: status: wait_human / waiting_human robot move done; waiting for a detection taken after the arm finished
+[vision_adapter_node-2] [WARN] [1795745921.768441304] [vision_adapter]: detection requested (after_robot_move) but no detector is configured
+
+====================================================================================================
+3. ros2 run tf2_ros tf2_echo end_effector_link right_finger_prox_link
+====================================================================================================
+kinova:~/workspaces# ros2 run tf2_ros tf2_echo end_effector_link right_finger_prox_link
+[INFO] [1795746945.997222372] [tf2_echo]: Waiting for transform end_effector_link ->  right_finger_prox_link: Invalid frame ID "end_effector_link" passed to canTransform argument target_frame - frame does not exist
+At time 977.865000000
+- Translation: [0.000, -0.031, 0.070]
+- Rotation: in Quaternion (xyzw) [0.161, 0.689, 0.161, 0.688]
+- Rotation: in RPY (radian) [1.571, 1.111, 1.571]
+- Rotation: in RPY (degree) [90.022, 63.656, 90.024]
+- Matrix:
+ -0.000 -0.000  1.000  0.000
+  0.444  0.896  0.000 -0.031
+ -0.896  0.444 -0.000  0.070
+  0.000  0.000  0.000  1.000
+[9 more samples with the same values]
+^C[INFO] [1795746957.929007361] [rclcpp]: signal_handler(SIGINT/SIGTERM)

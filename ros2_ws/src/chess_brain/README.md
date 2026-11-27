@@ -25,8 +25,8 @@ Design notes: `docs/CHESS_BRAIN_PLAN.md` at the repo root.
 - [x] `kinova_executor.py` / `kinova_arm.py` — pick-and-place for the course's Kinova Gen3 Lite through MoveIt (unit-tested with a fake arm; run in Gazebo with blocks standing in for pieces; **not yet on the real arm**)
 - [x] `reach_check` — asks MoveIt which squares the arm can reach for a given board position
 - [x] the Kinova executor run in Gazebo: single move, capture, missed grasp (`docs/evidence/2026-11-26_gazebo_executor_moves.txt`)
-- [x] `grip_direction.py` — the gripper turns to stay clear of the other pieces (run with MoveIt on mock hardware, not yet in Gazebo: `docs/evidence/2026-11-26_integration_container_runs.txt`)
-- [x] occupancy on the robot side: `vision_adapter_node` can publish the occupied squares, `arm_adapter_node` can look at the board before it moves (run against a simulated camera, same evidence file)
+- [x] `grip_direction.py` — the gripper turns to stay clear of the other pieces (run with MoveIt on mock hardware, a whole 48-ply game included, and in Gazebo; never with a piece in the gripper: `docs/evidence/2026-11-26_integration_container_runs.txt`, `2026-11-26_selftest_whole_games_discard_reach.txt`, `2026-11-26_gazebo_grip_direction.txt`)
+- [x] occupancy on the robot side: `vision_adapter_node` can publish the occupied squares, `arm_adapter_node` can look at the board before it moves (run against a simulated camera: `docs/evidence/2026-11-26_integration_container_runs.txt`)
 - [ ] the Kinova executor on the real arm, and with real pieces
 - [ ] a real detector plugged in (the wrapper around the simulation's perception, `chessbot_sim_ros.camera_detector`, has only seen rendered frames)
 
@@ -298,9 +298,16 @@ of 2026-10-15) the simulated gripper does not move
    ```
 
    `#` = reachable for carrying and for gripping, `^` = only at the carrying height, `.` = not at
-   all. Move the board until all 64 squares and the discard column are `#` (if that is impossible,
-   the board is too big for this arm and the team has to know now). The check takes several
-   minutes and prints its progress.
+   all. Move the board until all 64 squares are `#` (if that is impossible, the board is too big
+   for this arm and the team has to know now). The check takes several minutes and prints its
+   progress.
+
+   Below the map it shows the places for captured pieces in the order the arm fills them (8 to a
+   column, further columns away from the board) and says how many pieces fit before the first
+   place that is out of reach. A game can capture 30 pieces, so it checks 30 places
+   (`-p discard_slots:=N` for another number). If fewer fit, move the first place with
+   `discard_x` / `discard_y` (board frame) and run the check again: the far corner of that area
+   is the first thing to leave the arm's reach, so it usually has to sit towards the arm.
 
    Result for the 400 mm board (50 mm squares) as close as the mount plate allows, the command
    above with `board_x:=0.572`: **54 of 64**; the far rank and two more squares are out of reach

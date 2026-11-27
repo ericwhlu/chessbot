@@ -1,0 +1,728 @@
+Date: Thu 2026-11-26, about 17:20 to 21:00 (America/New_York)
+Machine: MacBook Pro (Apple M1 Pro).
+         Parts 1 to 3: MuJoCo 3.17.0 and Python 3.12 on the Mac, no ROS. The arm there is the one of
+         chessbot_sim (a 7-joint Kinova Gen3 with a Robotiq 2F-85, driven by its own IK), the camera
+         is the simulated one, the perception is chessbot_sim's (AprilTags + one-class YOLO).
+         Parts 4 and 5: Docker Desktop, one linux/arm64 container from the image built by
+         docker/jazzy-moveit/Dockerfile (ROS 2 Jazzy, MoveIt), the Gen3 Lite on ros2_control mock
+         hardware (launch/mock_gen3_lite.launch.py): the joints follow their commands exactly, there
+         is no physics and nothing to grip, so grasp_check is off.
+         NOT the course image, NOT Gazebo, not the real arm, not a real camera.
+Branch:  feature/integration @ 34c5958 for parts 1 to 4. Part 5 runs the reach_check of the commit
+         this file belongs to (the check now covers the places for all captured pieces of a game).
+         The repository was mounted read-only in the container; the workspace was built under /tmp/ws.
+Test:    what can be tested without the course VM: whole games instead of 12 plies, the robot as
+         white, the moves a random game rarely reaches, and a whole game through the real-arm executor.
+
+Result: PASS for everything tried; one problem with the board placement found (part 5) and the reach
+check extended so that it shows it.
+  1. A whole game in MuJoCo, robot black (chessbot_sim_ros.dry_run --plies 0 --robot black --seed 7):
+     58 plies to checkmate (0-1). All 29 robot moves made by the arm and confirmed by the camera. Of
+     the opponent's 29 moves 28 were inferred from the occupied squares; one was ambiguous (ply 17:
+     the bishop on d3 could have taken on a6 or on h7, which occupancy alone cannot tell apart) and
+     was confirmed by the simulated operator. 263 s.
+  2. The same with the robot as white (--robot white --seed 11), the first run with that colour:
+     23 plies to checkmate (1-0). Arm 12 of 12, opponent 11 of 11. 102 s.
+  3. The arm plays BOTH sides of a fixed 48-ply game (a small script outside the repository: for each
+     move chess_brain.actions.move_to_actions gives the actions, chessbot_sim.world.MujocoWorld.execute
+     has the arm play them from what the camera sees, and a camera scan must then show exactly the
+     squares the move leaves occupied): 48 of 48 moves, 72 pick-and-place actions, 294 s. The game has
+     castling on both sides, en passant and 22 captures; every piece type is moved by the arm and
+     captures, and every type but the king is captured. No promotion (the scene has no spare queens).
+     The game is listed with the log below.
+     In all three runs MuJoCo's ground truth agreed with the game after every ply (pieces_match_game
+     is true for all 58, 23 and 48 plies in the runs' summary.json).
+  4. The same 48-ply game through the real-arm executor (kinova_executor through arm_adapter_node,
+     grip_direction auto) against MoveIt on mock hardware, 40 mm squares, commands published as
+     chess_brain sends them (with the occupied squares): 48 of 48 commands "arm_done ok", 72 actions,
+     no planning retry, no execution retry, no fallback to a free-space plan. 53 minutes, 41 to 94 s a
+     command. Directions the fingers open along (pick, place; degrees in the arm's frame):
+     135/135 26 times, 90/90 21, 0/0 11, 45/45 6, and a quarter turn while carrying 8 times.
+     All 22 captured pieces were put down on their own place.
+  5. The places for captured pieces of the 40 mm board (8 to a column, 50 mm apart, further columns
+     away from the board). With the first place at discard_x:=-0.06 discard_y:=0.06, as in the 40 mm
+     reach check so far, places 16, 24 and 25 are out of the arm's reach: the 17th captured piece
+     could not be put down, and the check did not show it because it looked at the first 8 places
+     only. reach_check now checks 30 places (a game can capture 30 pieces) and says how many pieces
+     fit. Against MoveIt on mock hardware:
+       first place at (-0.06, 0.06): "room for 16 captured pieces of the 30 places checked", exit code 2
+       first place at (-0.05, 0.14): "room for all 30 captured pieces", exit code 0
+     Both times 64 of 64 squares, and MoveIt and this package's kinematics agree on every location at
+     both heights. With (-0.05, 0.14) the area runs past rank 8 beside the arm's base (the nearest
+     place is about 0.21 m from the base axis): that part of the table has to be free.
+     Part 4 used (-0.05, 0.14).
+  Unit tests with the change: chess_brain 647 passed, chessbot_sim_ros 54 passed, 1 skipped (on the Mac, no MuJoCo
+  in that interpreter), chessbot_sim/test_gameplay.py 11 passed.
+
+Not shown by any of this: Gazebo, the course image, the real arm, a real camera, real pieces, the
+gripper closing on a piece (mock hardware has nothing to grip; in MuJoCo the pieces are held by the
+simulated Robotiq gripper, not by the Gen3 Lite's), promotion. The new part of reach_check has not
+been run in Gazebo.
+
+In the logs "<repo>" stands for the directory of the checkout. From the MuJoCo logs the lines
+"[brain] arm_actions {...}" are left out (the "arm:" lines below them say the same). From the log of
+part 4 only the "action" and "arm_done" lines are kept (the full log has every motion). Log lines
+are cut to 200 to 260 characters by the scripts that collected them.
+
+====================================================================================================
+1. python -m chessbot_sim_ros.dry_run --plies 0 --robot black --seed 7
+====================================================================================================
+   [brain] human played e2e3
+ply  1  human  e2e3  
+         arm: c7 -> c6
+   [brain] robot played c7c6
+ply  2  robot  c7c6  
+   [brain] human played b2b3
+ply  3  human  b2b3  
+         arm: d7 -> d6
+   [brain] robot played d7d6
+ply  4  robot  d7d6  
+   [brain] human played d1h5
+ply  5  human  d1h5  
+         arm: g8 -> f6
+   [brain] robot played g8f6
+ply  6  robot  g8f6  
+   [brain] human played b3b4
+ply  7  human  b3b4  
+         arm: h5 -> DISCARD
+         arm: f6 -> h5
+   [brain] robot played f6h5
+ply  8  robot  f6h5  
+   [brain] human played h2h3
+ply  9  human  h2h3  
+         arm: e7 -> e5
+   [brain] robot played e7e5
+ply 10  robot  e7e5  
+   [brain] human played f1d3
+ply 11  human  f1d3  
+         arm: c6 -> c5
+   [brain] robot played c6c5
+ply 12  robot  c6c5  
+   [brain] human played b4c5
+ply 13  human  b4c5  
+         arm: h5 -> f6
+   [brain] robot played h5f6
+ply 14  robot  h5f6  
+   [brain] human played c2c3
+ply 15  human  c2c3  
+         arm: a7 -> a6
+   [brain] robot played a7a6
+ply 16  robot  a7a6  
+   [brain] human played d3a6
+ply 17  human  d3a6    <- ambiguous: the occupied squares fit d3a6 or d3h7; send cmd: move <uci>
+         arm: a6 -> DISCARD
+         arm: a8 -> a6
+   [brain] robot played a8a6
+ply 18  robot  a8a6  
+   [brain] human played c5d6
+ply 19  human  c5d6  
+         arm: d8 -> d7
+   [brain] robot played d8d7
+ply 20  robot  d8d7  
+   [brain] human played b1a3
+ply 21  human  b1a3  
+         arm: e8 -> d8
+   [brain] robot played e8d8
+ply 22  robot  e8d8  
+   [brain] human played g2g3
+ply 23  human  g2g3  
+         arm: e5 -> e4
+   [brain] robot played e5e4
+ply 24  robot  e5e4  
+   [brain] human played f2f4
+ply 25  human  f2f4  
+         arm: d7 -> c6
+   [brain] robot played d7c6
+ply 26  robot  d7c6  
+   [brain] human played a3b1
+ply 27  human  a3b1  
+         arm: c6 -> d7
+   [brain] robot played c6d7
+ply 28  robot  c6d7  
+   [brain] human played c1a3
+ply 29  human  c1a3  
+         arm: d6 -> DISCARD
+         arm: f8 -> d6
+   [brain] robot played f8d6
+ply 30  robot  f8d6  
+   [brain] human played a3b4
+ply 31  human  a3b4  
+         arm: f6 -> g8
+   [brain] robot played f6g8
+ply 32  robot  f6g8  
+   [brain] human played e1f1
+ply 33  human  e1f1  
+         arm: b4 -> DISCARD
+         arm: d6 -> b4
+   [brain] robot played d6b4
+ply 34  robot  d6b4  
+   [brain] human played c3b4
+ply 35  human  c3b4  
+         arm: b7 -> b5
+   [brain] robot played b7b5
+ply 36  robot  b7b5  
+   [brain] human played a2a4
+ply 37  human  a2a4  
+         arm: d7 -> e6
+   [brain] robot played d7e6
+ply 38  robot  d7e6  
+   [brain] human played b1a3
+ply 39  human  b1a3  
+         arm: a4 -> DISCARD
+         arm: a6 -> a4
+   [brain] robot played a6a4
+ply 40  robot  a6a4  
+   [brain] human played a3b5
+ply 41  human  a3b5  
+         arm: e6 -> c4
+   [brain] robot played e6c4
+ply 42  robot  e6c4  
+   [brain] human played g1e2
+ply 43  human  g1e2  
+         arm: a1 -> DISCARD
+         arm: a4 -> a1
+   [brain] robot played a4a1
+ply 44  robot  a4a1  
+   [brain] human played f1f2
+ply 45  human  f1f2  
+         arm: h3 -> DISCARD
+         arm: c8 -> h3
+   [brain] robot played c8h3
+ply 46  robot  c8h3  
+   [brain] human played h1d1
+ply 47  human  h1d1  
+         arm: d1 -> DISCARD
+         arm: a1 -> d1
+   [brain] robot played a1d1
+ply 48  robot  a1d1  
+   [brain] human played g3g4
+ply 49  human  g3g4  
+         arm: b5 -> DISCARD
+         arm: c4 -> b5
+   [brain] robot played c4b5
+ply 50  robot  c4b5  
+   [brain] human played e2c1
+ply 51  human  e2c1  
+         arm: d2 -> DISCARD
+         arm: d1 -> d2
+   [brain] robot played d1d2
+ply 52  robot  d1d2  
+   [brain] human played c1e2
+ply 53  human  c1e2  
+         arm: d8 -> c7
+   [brain] robot played d8c7
+ply 54  robot  d8c7  
+   [brain] human played g4g5
+ply 55  human  g4g5  
+         arm: e2 -> DISCARD
+         arm: b5 -> e2
+   [brain] robot played b5e2
+ply 56  robot  b5e2  
+   [brain] human played f2g1
+ply 57  human  f2g1  
+         arm: e2 -> e1
+   [brain] robot played e2e1
+ply 58  robot  e2e1  
+   [world] finished: game over: 0-1 (checkmate)
+
+plies played: 58
+robot moves:  29  (arm did it, camera confirmed: 29; finished by the operator: 0)
+human moves:  29  (camera inferred the move: 28; ambiguous, operator confirmed: 1; not recognised: 0)
+  ply 17 human d3a6   ambiguous: the occupied squares fit d3a6 or d3h7; send cmd: move <uci>
+finished: game over: 0-1 (checkmate)
+final position: 1n4nr/2k2ppp/8/6P1/1P2pP2/4P2b/3r4/4q1K1 w - - 2 30
+images and summary.json are in <repo>/game_run/selftest_1126/long_black
+real 263.19
+user 194.11
+sys 6.63
+exit 0
+
+====================================================================================================
+2. python -m chessbot_sim_ros.dry_run --plies 0 --robot white --seed 11
+====================================================================================================
+         arm: e2 -> e4
+   [brain] robot played e2e4
+ply  1  robot  e2e4  
+   [brain] human played g7g5
+ply  2  human  g7g5  
+         arm: b1 -> c3
+   [brain] robot played b1c3
+ply  3  robot  b1c3  
+   [brain] human played g8f6
+ply  4  human  g8f6  
+         arm: d2 -> d4
+   [brain] robot played d2d4
+ply  5  robot  d2d4  
+   [brain] human played f6g4
+ply  6  human  f6g4  
+         arm: h2 -> h4
+   [brain] robot played h2h4
+ply  7  robot  h2h4  
+   [brain] human played g4f2
+ply  8  human  g4f2  
+         arm: f2 -> DISCARD
+         arm: e1 -> f2
+   [brain] robot played e1f2
+ply  9  robot  e1f2  
+   [brain] human played g5h4
+ply 10  human  g5h4  
+         arm: g1 -> f3
+   [brain] robot played g1f3
+ply 11  robot  g1f3  
+   [brain] human played h8g8
+ply 12  human  h8g8  
+         arm: c1 -> e3
+   [brain] robot played c1e3
+ply 13  robot  c1e3  
+   [brain] human played b7b6
+ply 14  human  b7b6  
+         arm: e3 -> g5
+   [brain] robot played e3g5
+ply 15  robot  e3g5  
+   [brain] human played g8g5
+ply 16  human  g8g5  
+         arm: g5 -> DISCARD
+         arm: f3 -> g5
+   [brain] robot played f3g5
+ply 17  robot  f3g5  
+   [brain] human played b6b5
+ply 18  human  b6b5  
+         arm: d1 -> f3
+   [brain] robot played d1f3
+ply 19  robot  d1f3  
+   [brain] human played h4h3
+ply 20  human  h4h3  
+         arm: b5 -> DISCARD
+         arm: f1 -> b5
+   [brain] robot played f1b5
+ply 21  robot  f1b5  
+   [brain] human played a7a6
+ply 22  human  a7a6  
+         arm: f7 -> DISCARD
+         arm: f3 -> f7
+   [brain] robot played f3f7
+ply 23  robot  f3f7  
+   [world] finished: game over: 1-0 (checkmate)
+
+plies played: 23
+robot moves:  12  (arm did it, camera confirmed: 12; finished by the operator: 0)
+human moves:  11  (camera inferred the move: 11; ambiguous, operator confirmed: 0; not recognised: 0)
+finished: game over: 1-0 (checkmate)
+final position: rnbqkb2/2pppQ1p/p7/1B4N1/3PP3/2N4p/PPP2KP1/R6R b q - 0 12
+images and summary.json are in <repo>/game_run/selftest_1126/long_white
+real 102.31
+user 74.90
+sys 2.71
+exit 0
+
+====================================================================================================
+3. The arm plays both sides of a fixed game (MuJoCo)
+====================================================================================================
+the game:
+e2e4 d7d5  e4d5 d8d5  b1c3 d5a5  g1f3 b8c6  f1e2 c8g4  e1g1 e8c8
+h2h3 g4f3  e2f3 c6d4  g2g4 d4f3  d1f3 a5c3  b2c3 d8d2  c1d2 g8f6
+g4g5 h7h5  g5h6 g7h6  d2h6 f8h6  f3f6 e7f6  f1e1 h8g8  g1h2 g8g2
+h2g2 c8b8  a1d1 h6f4  d1d7 b8c8  d7f7 f4e5  e1e5 f6e5  f7c7 c8c7
+
+         arm: e2 -> e4
+ply  1  white  e2e4  
+         ^ pawn; 1 action(s), 3 s
+         arm: d7 -> d5
+ply  2  black  d7d5  
+         ^ pawn; 1 action(s), 4 s
+         arm: d5 -> DISCARD
+         arm: e4 -> d5
+ply  3  white  e4d5  
+         ^ pawn takes pawn; 2 action(s), 7 s
+         arm: d5 -> DISCARD
+         arm: d8 -> d5
+ply  4  black  d8d5  
+         ^ queen takes pawn; 2 action(s), 7 s
+         arm: b1 -> c3
+ply  5  white  b1c3  
+         ^ knight; 1 action(s), 4 s
+         arm: d5 -> a5
+ply  6  black  d5a5  
+         ^ queen; 1 action(s), 3 s
+         arm: g1 -> f3
+ply  7  white  g1f3  
+         ^ knight; 1 action(s), 4 s
+         arm: b8 -> c6
+ply  8  black  b8c6  
+         ^ knight; 1 action(s), 5 s
+         arm: f1 -> e2
+ply  9  white  f1e2  
+         ^ bishop; 1 action(s), 4 s
+         arm: c8 -> g4
+ply 10  black  c8g4  
+         ^ bishop; 1 action(s), 4 s
+         arm: e1 -> g1
+         arm: h1 -> f1
+ply 11  white  e1g1  
+         ^ castling, king side; 2 action(s), 8 s
+         arm: e8 -> c8
+         arm: a8 -> d8
+ply 12  black  e8c8  
+         ^ castling, queen side; 2 action(s), 7 s
+         arm: h2 -> h3
+ply 13  white  h2h3  
+         ^ pawn; 1 action(s), 4 s
+         arm: f3 -> DISCARD
+         arm: g4 -> f3
+ply 14  black  g4f3  
+         ^ bishop takes knight; 2 action(s), 8 s
+         arm: f3 -> DISCARD
+         arm: e2 -> f3
+ply 15  white  e2f3  
+         ^ bishop takes bishop; 2 action(s), 10 s
+         arm: c6 -> d4
+ply 16  black  c6d4  
+         ^ knight; 1 action(s), 3 s
+         arm: g2 -> g4
+ply 17  white  g2g4  
+         ^ pawn; 1 action(s), 4 s
+         arm: f3 -> DISCARD
+         arm: d4 -> f3
+ply 18  black  d4f3  
+         ^ knight takes bishop; 2 action(s), 7 s
+         arm: f3 -> DISCARD
+         arm: d1 -> f3
+ply 19  white  d1f3  
+         ^ queen takes knight; 2 action(s), 12 s
+         arm: c3 -> DISCARD
+         arm: a5 -> c3
+ply 20  black  a5c3  
+         ^ queen takes knight; 2 action(s), 7 s
+         arm: c3 -> DISCARD
+         arm: b2 -> c3
+ply 21  white  b2c3  
+         ^ pawn takes queen; 2 action(s), 6 s
+         arm: d2 -> DISCARD
+         arm: d8 -> d2
+ply 22  black  d8d2  
+         ^ rook takes pawn; 2 action(s), 7 s
+         arm: d2 -> DISCARD
+         arm: c1 -> d2
+ply 23  white  c1d2  
+         ^ bishop takes rook; 2 action(s), 9 s
+         arm: g8 -> f6
+ply 24  black  g8f6  
+         ^ knight; 1 action(s), 4 s
+         arm: g4 -> g5
+ply 25  white  g4g5  
+         ^ pawn; 1 action(s), 4 s
+         arm: h7 -> h5
+ply 26  black  h7h5  
+         ^ pawn; 1 action(s), 3 s
+         arm: h5 -> DISCARD
+         arm: g5 -> h6
+ply 27  white  g5h6  
+         ^ en passant; 2 action(s), 7 s
+         arm: h6 -> DISCARD
+         arm: g7 -> h6
+ply 28  black  g7h6  
+         ^ pawn takes pawn; 2 action(s), 11 s
+         arm: h6 -> DISCARD
+         arm: d2 -> h6
+ply 29  white  d2h6  
+         ^ bishop takes pawn; 2 action(s), 23 s
+         arm: h6 -> DISCARD
+         arm: f8 -> h6
+ply 30  black  f8h6  
+         ^ bishop takes bishop; 2 action(s), 9 s
+         arm: f6 -> DISCARD
+         arm: f3 -> f6
+ply 31  white  f3f6  
+         ^ queen takes knight; 2 action(s), 9 s
+         arm: f6 -> DISCARD
+         arm: e7 -> f6
+ply 32  black  e7f6  
+         ^ pawn takes queen; 2 action(s), 6 s
+         arm: f1 -> e1
+ply 33  white  f1e1  
+         ^ rook; 1 action(s), 4 s
+         arm: h8 -> g8
+ply 34  black  h8g8  
+         ^ rook; 1 action(s), 3 s
+         arm: g1 -> h2
+ply 35  white  g1h2  
+         ^ king; 1 action(s), 3 s
+         arm: g8 -> g2
+ply 36  black  g8g2  
+         ^ rook; 1 action(s), 3 s
+         arm: g2 -> DISCARD
+         arm: h2 -> g2
+ply 37  white  h2g2  
+         ^ king takes rook; 2 action(s), 5 s
+         arm: c8 -> b8
+ply 38  black  c8b8  
+         ^ king; 1 action(s), 3 s
+         arm: a1 -> d1
+ply 39  white  a1d1  
+         ^ rook; 1 action(s), 6 s
+         arm: h6 -> f4
+ply 40  black  h6f4  
+         ^ bishop; 1 action(s), 3 s
+         arm: d1 -> d7
+ply 41  white  d1d7  
+         ^ rook; 1 action(s), 4 s
+         arm: b8 -> c8
+ply 42  black  b8c8  
+         ^ king; 1 action(s), 4 s
+         arm: f7 -> DISCARD
+         arm: d7 -> f7
+ply 43  white  d7f7  
+         ^ rook takes pawn; 2 action(s), 7 s
+         arm: f4 -> e5
+ply 44  black  f4e5  
+         ^ bishop; 1 action(s), 4 s
+         arm: e5 -> DISCARD
+         arm: e1 -> e5
+ply 45  white  e1e5  
+         ^ rook takes bishop; 2 action(s), 7 s
+         arm: e5 -> DISCARD
+         arm: f6 -> e5
+ply 46  black  f6e5  
+         ^ pawn takes rook; 2 action(s), 6 s
+         arm: c7 -> DISCARD
+         arm: f7 -> c7
+ply 47  white  f7c7  
+         ^ rook takes pawn; 2 action(s), 8 s
+         arm: c7 -> DISCARD
+         arm: c8 -> c7
+ply 48  black  c8c7  
+         ^ king takes rook; 2 action(s), 7 s
+
+48 of 48 moves executed by the arm and confirmed by the camera, 72 actions, 294 s
+real 294.98
+user 289.94
+sys 6.14
+exit 0
+
+====================================================================================================
+4. The same game through kinova_executor, MoveIt on mock hardware (seconds per command, then key lines)
+====================================================================================================
+id 1 (e2e4): 45 s
+id 2 (d7d5): 42 s
+id 3 (e4d5): 78 s
+id 4 (d8d5): 87 s
+id 5 (b1c3): 48 s
+id 6 (d5a5): 41 s
+id 7 (g1f3): 48 s
+id 8 (b8c6): 43 s
+id 9 (f1e2): 48 s
+id 10 (c8g4): 46 s
+id 11 (e1g1): 78 s
+id 12 (e8c8): 82 s
+id 13 (h2h3): 46 s
+id 14 (g4f3): 84 s
+id 15 (e2f3): 85 s
+id 16 (c6d4): 43 s
+id 17 (g2g4): 45 s
+id 18 (d4f3): 86 s
+id 19 (d1f3): 92 s
+id 20 (a5c3): 88 s
+id 21 (b2c3): 93 s
+id 22 (d8d2): 92 s
+id 23 (c1d2): 83 s
+id 24 (g8f6): 43 s
+id 25 (g4g5): 42 s
+id 26 (h7h5): 43 s
+id 27 (g5h6): 83 s
+id 28 (g7h6): 87 s
+id 29 (d2h6): 87 s
+id 30 (f8h6): 94 s
+id 31 (f3f6): 91 s
+id 32 (e7f6): 91 s
+id 33 (f1e1): 46 s
+id 34 (h8g8): 42 s
+id 35 (g1h2): 47 s
+id 36 (g8g2): 49 s
+id 37 (h2g2): 89 s
+id 38 (c8b8): 42 s
+id 39 (a1d1): 48 s
+id 40 (h6f4): 43 s
+id 41 (d1d7): 51 s
+id 42 (b8c8): 43 s
+id 43 (d7f7): 87 s
+id 44 (f4e5): 43 s
+id 45 (e1e5): 88 s
+id 46 (f6e5): 85 s
+id 47 (f7c7): 84 s
+id 48 (c8c7): 84 s
+===== game48: -p square_size:=0.04 -p board_x:=0.492 -p board_y:=-0.16 -p board_yaw_deg:=90.0 -p surface_z:=-0.056 -p offboard_drop:=0.0066 -p discard_x:=-0.05 -p discard_y:=0.14
+[INFO] [arm_adapter]: arm_adapter ready: executor chess_brain.kinova_executor:pick_and_place; a1 at (0.472, -0.140, -0.0560), h8 at (0.192, 0.140, -0.0560); grip direction: auto; looking at the board 
+[INFO] [chess_kinova_arm]: end_effector_link: this package's kinematics and MoveIt differ by 0.00 mm.
+[INFO] [chess_kinova_arm]: arm ready at the WORK pose
+[INFO] [arm_adapter]: executor prepared: the arm is ready
+[INFO] [chess_kinova_arm]: action 1/1: e2 (0.432, 0.020) -> e4 (0.352, 0.020); fingers open along 135 deg at the pick, 135 deg at the place
+[INFO] [arm_adapter]: arm_done: id 1 ok
+[INFO] [chess_kinova_arm]: action 1/1: d7 (0.232, -0.020) -> d5 (0.312, -0.020); fingers open along 135 deg at the pick, 135 deg at the place
+[INFO] [arm_adapter]: arm_done: id 2 ok
+[INFO] [chess_kinova_arm]: action 1/2: d5 (0.312, -0.020) -> DISCARD (0.352, -0.210); fingers open along 135 deg at the pick, 135 deg at the place
+[INFO] [chess_kinova_arm]: action 2/2: e4 (0.352, 0.020) -> d5 (0.312, -0.020); fingers open along 90 deg at the pick, 90 deg at the place
+[INFO] [arm_adapter]: arm_done: id 3 ok
+[INFO] [chess_kinova_arm]: action 1/2: d5 (0.312, -0.020) -> DISCARD (0.302, -0.210); fingers open along 90 deg at the pick, 90 deg at the place
+[INFO] [chess_kinova_arm]: action 2/2: d8 (0.192, -0.020) -> d5 (0.312, -0.020); fingers open along 0 deg at the pick, 0 deg at the place
+[INFO] [arm_adapter]: arm_done: id 4 ok
+[INFO] [chess_kinova_arm]: action 1/1: b1 (0.472, -0.100) -> c3 (0.392, -0.060); fingers open along 135 deg at the pick, 135 deg at the place
+[INFO] [arm_adapter]: arm_done: id 5 ok
+[INFO] [chess_kinova_arm]: action 1/1: d5 (0.312, -0.020) -> a5 (0.312, -0.140); fingers open along 0 deg at the pick, 0 deg at the place
+[INFO] [arm_adapter]: arm_done: id 6 ok
+[INFO] [chess_kinova_arm]: action 1/1: g1 (0.472, 0.100) -> f3 (0.392, 0.060); fingers open along 135 deg at the pick, 135 deg at the place
+[INFO] [arm_adapter]: arm_done: id 7 ok
+[INFO] [chess_kinova_arm]: action 1/1: b8 (0.192, -0.100) -> c6 (0.272, -0.060); fingers open along 135 deg at the pick, 135 deg at the place
+[INFO] [arm_adapter]: arm_done: id 8 ok
+[INFO] [chess_kinova_arm]: action 1/1: f1 (0.472, 0.060) -> e2 (0.432, 0.020); fingers open along 135 deg at the pick, 135 deg at the place
+[INFO] [arm_adapter]: arm_done: id 9 ok
+[INFO] [chess_kinova_arm]: action 1/1: c8 (0.192, -0.060) -> g4 (0.352, 0.100); fingers open along 90 deg at the pick, 90 deg at the place
+[INFO] [arm_adapter]: arm_done: id 10 ok
+[INFO] [chess_kinova_arm]: action 1/2: e1 (0.472, 0.020) -> g1 (0.472, 0.100); fingers open along 135 deg at the pick, 135 deg at the place
+[INFO] [chess_kinova_arm]: action 2/2: h1 (0.472, 0.140) -> f1 (0.472, 0.060); fingers open along 135 deg at the pick, 135 deg at the place
+[INFO] [arm_adapter]: arm_done: id 11 ok
+[INFO] [chess_kinova_arm]: action 1/2: e8 (0.192, 0.020) -> c8 (0.192, -0.060); fingers open along 135 deg at the pick, 135 deg at the place
+[INFO] [chess_kinova_arm]: action 2/2: a8 (0.192, -0.140) -> d8 (0.192, -0.020); fingers open along 90 deg at the pick, 0 deg at the place
+[INFO] [arm_adapter]: arm_done: id 12 ok
+[INFO] [chess_kinova_arm]: action 1/1: h2 (0.432, 0.140) -> h3 (0.392, 0.140); fingers open along 0 deg at the pick, 0 deg at the place
+[INFO] [arm_adapter]: arm_done: id 13 ok
+[INFO] [chess_kinova_arm]: action 1/2: f3 (0.392, 0.060) -> DISCARD (0.252, -0.210); fingers open along 90 deg at the pick, 90 deg at the place
+[INFO] [chess_kinova_arm]: action 2/2: g4 (0.352, 0.100) -> f3 (0.392, 0.060); fingers open along 90 deg at the pick, 90 deg at the place
+[INFO] [arm_adapter]: arm_done: id 14 ok
+[INFO] [chess_kinova_arm]: action 1/2: f3 (0.392, 0.060) -> DISCARD (0.202, -0.210); fingers open along 90 deg at the pick, 90 deg at the place
+[INFO] [chess_kinova_arm]: action 2/2: e2 (0.432, 0.020) -> f3 (0.392, 0.060); fingers open along 0 deg at the pick, 90 deg at the place
+[INFO] [arm_adapter]: arm_done: id 15 ok
+[INFO] [chess_kinova_arm]: action 1/1: c6 (0.272, -0.060) -> d4 (0.352, -0.020); fingers open along 90 deg at the pick, 90 deg at the place
+[INFO] [arm_adapter]: arm_done: id 16 ok
+[INFO] [chess_kinova_arm]: action 1/1: g2 (0.432, 0.100) -> g4 (0.352, 0.100); fingers open along 135 deg at the pick, 135 deg at the place
+[INFO] [arm_adapter]: arm_done: id 17 ok
+[INFO] [chess_kinova_arm]: action 1/2: f3 (0.392, 0.060) -> DISCARD (0.152, -0.210); fingers open along 90 deg at the pick, 90 deg at the place
+[INFO] [chess_kinova_arm]: action 2/2: d4 (0.352, -0.020) -> f3 (0.392, 0.060); fingers open along 90 deg at the pick, 90 deg at the place
+[INFO] [arm_adapter]: arm_done: id 18 ok
+[INFO] [chess_kinova_arm]: action 1/2: f3 (0.392, 0.060) -> DISCARD (0.102, -0.210); fingers open along 90 deg at the pick, 90 deg at the place
+[INFO] [chess_kinova_arm]: action 2/2: d1 (0.472, -0.020) -> f3 (0.392, 0.060); fingers open along 135 deg at the pick, 135 deg at the place
+[INFO] [arm_adapter]: arm_done: id 19 ok
+[INFO] [chess_kinova_arm]: action 1/2: c3 (0.392, -0.060) -> DISCARD (0.052, -0.210); fingers open along 90 deg at the pick, 90 deg at the place
+[INFO] [chess_kinova_arm]: action 2/2: a5 (0.312, -0.140) -> c3 (0.392, -0.060); fingers open along 90 deg at the pick, 90 deg at the place
+[INFO] [arm_adapter]: arm_done: id 20 ok
+[INFO] [chess_kinova_arm]: action 1/2: c3 (0.392, -0.060) -> DISCARD (0.002, -0.210); fingers open along 90 deg at the pick, 90 deg at the place
+[INFO] [chess_kinova_arm]: action 2/2: b2 (0.432, -0.100) -> c3 (0.392, -0.060); fingers open along 0 deg at the pick, 90 deg at the place
+[INFO] [arm_adapter]: arm_done: id 21 ok
+[INFO] [chess_kinova_arm]: action 1/2: d2 (0.432, -0.020) -> DISCARD (0.352, -0.260); fingers open along 0 deg at the pick, 0 deg at the place
+[INFO] [chess_kinova_arm]: action 2/2: d8 (0.192, -0.020) -> d2 (0.432, -0.020); fingers open along 0 deg at the pick, 0 deg at the place
+[INFO] [arm_adapter]: arm_done: id 22 ok
+[INFO] [chess_kinova_arm]: action 1/2: d2 (0.432, -0.020) -> DISCARD (0.302, -0.260); fingers open along 135 deg at the pick, 135 deg at the place
+[INFO] [chess_kinova_arm]: action 2/2: c1 (0.472, -0.060) -> d2 (0.432, -0.020); fingers open along 90 deg at the pick, 0 deg at the place
+[INFO] [arm_adapter]: arm_done: id 23 ok
+[INFO] [chess_kinova_arm]: action 1/1: g8 (0.192, 0.100) -> f6 (0.272, 0.060); fingers open along 135 deg at the pick, 135 deg at the place
+[INFO] [arm_adapter]: arm_done: id 24 ok
+[INFO] [chess_kinova_arm]: action 1/1: g4 (0.352, 0.100) -> g5 (0.312, 0.100); fingers open along 90 deg at the pick, 90 deg at the place
+[INFO] [arm_adapter]: arm_done: id 25 ok
+[INFO] [chess_kinova_arm]: action 1/1: h7 (0.232, 0.140) -> h5 (0.312, 0.140); fingers open along 135 deg at the pick, 135 deg at the place
+[INFO] [arm_adapter]: arm_done: id 26 ok
+[INFO] [chess_kinova_arm]: action 1/2: h5 (0.312, 0.140) -> DISCARD (0.252, -0.260); fingers open along 135 deg at the pick, 135 deg at the place
+[INFO] [chess_kinova_arm]: action 2/2: g5 (0.312, 0.100) -> h6 (0.272, 0.140); fingers open along 135 deg at the pick, 135 deg at the place
+[INFO] [arm_adapter]: arm_done: id 27 ok
+[INFO] [chess_kinova_arm]: action 1/2: h6 (0.272, 0.140) -> DISCARD (0.202, -0.260); fingers open along 135 deg at the pick, 135 deg at the place
+[INFO] [chess_kinova_arm]: action 2/2: g7 (0.232, 0.100) -> h6 (0.272, 0.140); fingers open along 0 deg at the pick, 0 deg at the place
+[INFO] [arm_adapter]: arm_done: id 28 ok
+[INFO] [chess_kinova_arm]: action 1/2: h6 (0.272, 0.140) -> DISCARD (0.152, -0.260); fingers open along 135 deg at the pick, 135 deg at the place
+[INFO] [chess_kinova_arm]: action 2/2: d2 (0.432, -0.020) -> h6 (0.272, 0.140); fingers open along 0 deg at the pick, 0 deg at the place
+[INFO] [arm_adapter]: arm_done: id 29 ok
+[INFO] [chess_kinova_arm]: action 1/2: h6 (0.272, 0.140) -> DISCARD (0.102, -0.260); fingers open along 135 deg at the pick, 135 deg at the place
+[INFO] [chess_kinova_arm]: action 2/2: f8 (0.192, 0.060) -> h6 (0.272, 0.140); fingers open along 90 deg at the pick, 90 deg at the place
+[INFO] [arm_adapter]: arm_done: id 30 ok
+[INFO] [chess_kinova_arm]: action 1/2: f6 (0.272, 0.060) -> DISCARD (0.052, -0.260); fingers open along 135 deg at the pick, 135 deg at the place
+[INFO] [chess_kinova_arm]: action 2/2: f3 (0.392, 0.060) -> f6 (0.272, 0.060); fingers open along 90 deg at the pick, 90 deg at the place
+[INFO] [arm_adapter]: arm_done: id 31 ok
+[INFO] [chess_kinova_arm]: action 1/2: f6 (0.272, 0.060) -> DISCARD (0.002, -0.260); fingers open along 135 deg at the pick, 135 deg at the place
+[INFO] [chess_kinova_arm]: action 2/2: e7 (0.232, 0.020) -> f6 (0.272, 0.060); fingers open along 0 deg at the pick, 90 deg at the place
+[INFO] [arm_adapter]: arm_done: id 32 ok
+[INFO] [chess_kinova_arm]: action 1/1: f1 (0.472, 0.060) -> e1 (0.472, 0.020); fingers open along 45 deg at the pick, 45 deg at the place
+[INFO] [arm_adapter]: arm_done: id 33 ok
+[INFO] [chess_kinova_arm]: action 1/1: h8 (0.192, 0.140) -> g8 (0.192, 0.100); fingers open along 45 deg at the pick, 45 deg at the place
+[INFO] [arm_adapter]: arm_done: id 34 ok
+[INFO] [chess_kinova_arm]: action 1/1: g1 (0.472, 0.100) -> h2 (0.432, 0.140); fingers open along 90 deg at the pick, 90 deg at the place
+[INFO] [arm_adapter]: arm_done: id 35 ok
+[INFO] [chess_kinova_arm]: action 1/1: g8 (0.192, 0.100) -> g2 (0.432, 0.100); fingers open along 0 deg at the pick, 0 deg at the place
+[INFO] [arm_adapter]: arm_done: id 36 ok
+[INFO] [chess_kinova_arm]: action 1/2: g2 (0.432, 0.100) -> DISCARD (0.352, -0.310); fingers open along 0 deg at the pick, 0 deg at the place
+[INFO] [chess_kinova_arm]: action 2/2: h2 (0.432, 0.140) -> g2 (0.432, 0.100); fingers open along 90 deg at the pick, 0 deg at the place
+[INFO] [arm_adapter]: arm_done: id 37 ok
+[INFO] [chess_kinova_arm]: action 1/1: c8 (0.192, -0.060) -> b8 (0.192, -0.100); fingers open along 90 deg at the pick, 90 deg at the place
+[INFO] [arm_adapter]: arm_done: id 38 ok
+[INFO] [chess_kinova_arm]: action 1/1: a1 (0.472, -0.140) -> d1 (0.472, -0.020); fingers open along 90 deg at the pick, 0 deg at the place
+[INFO] [arm_adapter]: arm_done: id 39 ok
+[INFO] [chess_kinova_arm]: action 1/1: h6 (0.272, 0.140) -> f4 (0.352, 0.060); fingers open along 90 deg at the pick, 90 deg at the place
+[INFO] [arm_adapter]: arm_done: id 40 ok
+[INFO] [chess_kinova_arm]: action 1/1: d1 (0.472, -0.020) -> d7 (0.232, -0.020); fingers open along 0 deg at the pick, 0 deg at the place
+[INFO] [arm_adapter]: arm_done: id 41 ok
+[INFO] [chess_kinova_arm]: action 1/1: b8 (0.192, -0.100) -> c8 (0.192, -0.060); fingers open along 90 deg at the pick, 90 deg at the place
+[INFO] [arm_adapter]: arm_done: id 42 ok
+[INFO] [chess_kinova_arm]: action 1/2: f7 (0.232, 0.060) -> DISCARD (0.302, -0.310); fingers open along 135 deg at the pick, 135 deg at the place
+[INFO] [chess_kinova_arm]: action 2/2: d7 (0.232, -0.020) -> f7 (0.232, 0.060); fingers open along 0 deg at the pick, 90 deg at the place
+[INFO] [arm_adapter]: arm_done: id 43 ok
+[INFO] [chess_kinova_arm]: action 1/1: f4 (0.352, 0.060) -> e5 (0.312, 0.020); fingers open along 45 deg at the pick, 45 deg at the place
+[INFO] [arm_adapter]: arm_done: id 44 ok
+[INFO] [chess_kinova_arm]: action 1/2: e5 (0.312, 0.020) -> DISCARD (0.252, -0.310); fingers open along 45 deg at the pick, 45 deg at the place
+[INFO] [chess_kinova_arm]: action 2/2: e1 (0.472, 0.020) -> e5 (0.312, 0.020); fingers open along 45 deg at the pick, 45 deg at the place
+[INFO] [arm_adapter]: arm_done: id 45 ok
+[INFO] [chess_kinova_arm]: action 1/2: e5 (0.312, 0.020) -> DISCARD (0.202, -0.310); fingers open along 45 deg at the pick, 45 deg at the place
+[INFO] [chess_kinova_arm]: action 2/2: f6 (0.272, 0.060) -> e5 (0.312, 0.020); fingers open along 90 deg at the pick, 90 deg at the place
+[INFO] [arm_adapter]: arm_done: id 46 ok
+[INFO] [chess_kinova_arm]: action 1/2: c7 (0.232, -0.060) -> DISCARD (0.152, -0.310); fingers open along 135 deg at the pick, 135 deg at the place
+[INFO] [chess_kinova_arm]: action 2/2: f7 (0.232, 0.060) -> c7 (0.232, -0.060); fingers open along 135 deg at the pick, 135 deg at the place
+[INFO] [arm_adapter]: arm_done: id 47 ok
+[INFO] [chess_kinova_arm]: action 1/2: c7 (0.232, -0.060) -> DISCARD (0.102, -0.310); fingers open along 135 deg at the pick, 135 deg at the place
+[INFO] [chess_kinova_arm]: action 2/2: c8 (0.192, -0.060) -> c7 (0.232, -0.060); fingers open along 0 deg at the pick, 0 deg at the place
+[INFO] [arm_adapter]: arm_done: id 48 ok
+planning or execution retries and fallbacks: 0
+exit 0
+
+====================================================================================================
+5. ros2 run chess_brain reach_check, 40 mm board, two positions of the places for captured pieces
+====================================================================================================
+move_group is up
+===== first place for captured pieces at discard_x:=-0.06 discard_y:=0.06
+[INFO] [chess_reach_check]: MoveIt is ready.
+[INFO] [chess_reach_check]: end_effector_link: this package's kinematics and MoveIt differ by 0.00 mm.
+[INFO] [chess_reach_check]: Added the table and mount to MoveIt's planning scene.
+[INFO] [chess_reach_check]: checking the board: a1 at (0.472, -0.140), h8 at (0.192, 0.140), surface z -0.0560; carrying at z 0.251, gripping at z 0.121 (end_effector_link in base_link); 30 places for captured pieces; asking MoveIt's compute_ik (collision-awar
+  8  # # # # # # # #
+  7  # # # # # # # #
+  6  # # # # # # # #
+  5  # # # # # # # #
+  4  # # # # # # # #
+  3  # # # # # # # #
+  2  # # # # # # # #
+  1  # # # # # # # #
+     a b c d e f g h
+  squares fully reachable: 64 of 64
+  places for captured pieces, in the order they are filled (8 per column): ######## ######## .####### ..####
+  room for 16 captured pieces of the 30 places checked (a game can need 30); not fully reachable: DISCARD[16] DISCARD[24] DISCARD[25]
+  off-board: SPARE_Q_B #  SPARE_Q_W #
+  by joint angles alone (no collision check): 64 of 64 squares
+  MoveIt and the kinematics agree on every location, at both heights
+[ros2run]: Process exited with failure 2
+exit code 2, 242 s
+===== first place for captured pieces at discard_x:=-0.05 discard_y:=0.14
+[INFO] [chess_reach_check]: MoveIt is ready.
+[INFO] [chess_reach_check]: end_effector_link: this package's kinematics and MoveIt differ by 0.00 mm.
+[INFO] [chess_reach_check]: Added the table and mount to MoveIt's planning scene.
+[INFO] [chess_reach_check]: checking the board: a1 at (0.472, -0.140), h8 at (0.192, 0.140), surface z -0.0560; carrying at z 0.251, gripping at z 0.121 (end_effector_link in base_link); 30 places for captured pieces; asking MoveIt's compute_ik (collision-awar
+  8  # # # # # # # #
+  7  # # # # # # # #
+  6  # # # # # # # #
+  5  # # # # # # # #
+  4  # # # # # # # #
+  3  # # # # # # # #
+  2  # # # # # # # #
+  1  # # # # # # # #
+     a b c d e f g h
+  squares fully reachable: 64 of 64
+  places for captured pieces, in the order they are filled (8 per column): ######## ######## ######## ######
+  room for all 30 captured pieces (a game can need 30)
+  off-board: SPARE_Q_B #  SPARE_Q_W #
+  by joint angles alone (no collision check): 64 of 64 squares
+  MoveIt and the kinematics agree on every location, at both heights
+exit code 0, 212 s
+exit 0

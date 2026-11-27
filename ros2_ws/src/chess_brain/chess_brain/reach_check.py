@@ -15,6 +15,11 @@ same heights as kinova_executor, and prints a map of the board:
 limits, touching neither the table nor the arm. It is a necessary check, not a guarantee that
 every straight descent can be planned. The exit code is 0 only if everything is fully reachable.
 
+Below the map come the places for captured pieces, in the order the arm fills them. A game can
+capture 30 pieces (all but the two kings), so 30 places are checked (``-p discard_slots:=N`` for
+another number), and the report says how many pieces fit before the first place that is out of
+reach. If that is fewer than 30, move the first place with ``discard_x`` / ``discard_y``.
+
 A second line says how many squares have joint angles at all (gen3_lite_kinematics, no collision
 check, no ROS): where the two disagree, the square is within the arm's length but something is
 in the way, or the two models differ.
@@ -32,6 +37,8 @@ from .board_frame import FILES, RANKS, Locations
 from .gen3_lite_kinematics import top_down_solutions
 
 Reach = Tuple[bool, bool]  # (at the carrying height, at the gripping height)
+FULL: Reach = (True, True)
+GAME_DISCARDS = 30  # the most pieces one game can capture: all 32 but the two kings
 
 
 def reach_table(
@@ -39,10 +46,11 @@ def reach_table(
     travel_z: Callable[[float], float],
     grip_z: Callable[[float], float],
     can_reach: Callable[[float, float, float], bool],
-    discard_slots: int = 8,
+    discard_slots: int = GAME_DISCARDS,
 ) -> Dict[str, Reach]:
-    """Check every square and off-board location. ``travel_z`` / ``grip_z`` map the surface
-    height to the end-effector height (kinova_executor.Settings provides both)."""
+    """Check every square and off-board location: the first ``discard_slots`` places for captured
+    pieces (by default as many as a whole game can need) and the spares. ``travel_z`` / ``grip_z``
+    map the surface height to the end-effector height (kinova_executor.Settings provides both)."""
     points = {f + r: locations.frame.world_xyz(f + r) for r in RANKS for f in FILES}
     for index in range(discard_slots):
         points[f"DISCARD[{index}]"] = locations.discard_slot_xyz(index)
@@ -62,19 +70,38 @@ def _mark(reach: Reach) -> str:
     return "#" if high and low else "^" if high else "."
 
 
-def format_reach(table: Dict[str, Reach]) -> List[str]:
-    """The board as text (rank 8 at the top, a-file on the left), then the other locations."""
+def format_reach(table: Dict[str, Reach], discard_per_column: int = 8) -> List[str]:
+    """The board as text (rank 8 at the top, a-file on the left), then the places for captured
+    pieces in the order they are filled (one group per column of ``discard_per_column``), then
+    the other locations."""
     lines = []
     for rank in reversed(RANKS):
         lines.append(f"  {rank}  " + " ".join(_mark(table[f + rank]) for f in FILES))
     lines.append("     " + " ".join(FILES))
     squares = [f + r for r in RANKS for f in FILES]
-    good = [name for name in squares if table[name] == (True, True)]
-    bad = [name for name in squares if table[name] != (True, True)]
+    good = [name for name in squares if table[name] == FULL]
+    bad = [name for name in squares if table[name] != FULL]
     lines.append(f"  squares fully reachable: {len(good)} of {len(squares)}")
     if bad:
         lines.append("  not fully reachable: " + " ".join(bad))
-    others = [name for name in table if name not in squares]
+    slots = sorted((name for name in table if name.startswith("DISCARD[")), key=lambda name: int(name[8:-1]))
+    if slots:
+        marks = [_mark(table[name]) for name in slots]
+        step = max(1, int(discard_per_column))
+        lines.append(
+            f"  places for captured pieces, in the order they are filled ({step} per column): "
+            + " ".join("".join(marks[i:i + step]) for i in range(0, len(marks), step))
+        )
+        out = [name for name in slots if table[name] != FULL]
+        if out:
+            room = slots.index(out[0])   # the places are filled in order: the first gap ends it
+            lines.append(
+                f"  room for {room} captured pieces of the {len(slots)} places checked "
+                f"(a game can need {GAME_DISCARDS}); not fully reachable: " + " ".join(out)
+            )
+        else:
+            lines.append(f"  room for all {len(slots)} captured pieces (a game can need {GAME_DISCARDS})")
+    others = [name for name in table if name not in squares and name not in slots]
     if others:
         lines.append("  off-board: " + "  ".join(f"{name} {_mark(table[name])}" for name in others))
     return lines
@@ -88,10 +115,9 @@ def kinematic_reach(x: float, y: float, z: float) -> bool:
 def compare_with_kinematics(table: Dict[str, Reach], kinematic: Dict[str, Reach]) -> List[str]:
     """How MoveIt's answer relates to the arm's geometry alone (same keys in both tables)."""
     squares = [f + r for r in RANKS for f in FILES]
-    full = (True, True)
     lines = [
         "  by joint angles alone (no collision check): "
-        f"{sum(kinematic[name] == full for name in squares)} of {len(squares)} squares"
+        f"{sum(kinematic[name] == FULL for name in squares)} of {len(squares)} squares"
     ]
     # compared height by height: (carrying, gripping)
     blocked = [n for n in table if any(k and not m for m, k in zip(table[n], kinematic[n]))]
@@ -107,6 +133,7 @@ def compare_with_kinematics(table: Dict[str, Reach], kinematic: Dict[str, Reach]
 
 def main(args=None) -> None:
     import rclpy
+    from rcl_interfaces.msg import ParameterDescriptor
     from rclpy.executors import MultiThreadedExecutor
 
     from .board_params import declare_board_parameters, locations_from_parameters
@@ -118,6 +145,8 @@ def main(args=None) -> None:
         rclpy.init(args=args)
         node = KinovaArm("chess_reach_check")
         declare_board_parameters(node)
+        node.declare_parameter("discard_slots", GAME_DISCARDS, ParameterDescriptor(dynamic_typing=True))
+        slots = max(0, int(node.get_parameter("discard_slots").value))
         executor = MultiThreadedExecutor(num_threads=2)
         executor.add_node(node)
         threading.Thread(target=_spin, args=(executor,), daemon=True).start()
@@ -131,9 +160,10 @@ def main(args=None) -> None:
                 f"checking the board: a1 at ({a1[0]:.3f}, {a1[1]:.3f}), h8 at ({h8[0]:.3f}, {h8[1]:.3f}), "
                 f"surface z {a1[2]:.4f}; carrying at z {settings.travel_z(a1[2]):.3f}, "
                 f"gripping at z {settings.grip_z(a1[2]):.3f} (end_effector_link in base_link); "
-                f"asking {node.reach_method()}. This takes several minutes."
+                f"{slots} places for captured pieces; asking {node.reach_method()}. "
+                "This takes several minutes."
             )
-            total = 2 * (len(FILES) * len(RANKS) + 8 + len(locations.spares))
+            total = 2 * (len(FILES) * len(RANKS) + slots + len(locations.spares))
             checked = [0]
 
             def can_reach(x: float, y: float, z: float) -> bool:
@@ -143,12 +173,13 @@ def main(args=None) -> None:
                     print(f"  ... {checked[0]} of {total} poses checked", flush=True)
                 return answer
 
-            table = reach_table(locations, settings.travel_z, settings.grip_z, can_reach)
-            kinematic = reach_table(locations, settings.travel_z, settings.grip_z, kinematic_reach)
-            print("\n".join(format_reach(table) + compare_with_kinematics(table, kinematic)), flush=True)
+            table = reach_table(locations, settings.travel_z, settings.grip_z, can_reach, slots)
+            kinematic = reach_table(locations, settings.travel_z, settings.grip_z, kinematic_reach, slots)
+            report = format_reach(table, locations.discard_per_column)
+            print("\n".join(report + compare_with_kinematics(table, kinematic)), flush=True)
             if not any(high or low for high, low in table.values()):
                 print("  NOTHING is reachable: is MoveIt answering? Check its terminal.", flush=True)
-            code = 0 if all(reach == (True, True) for reach in table.values()) else 2
+            code = 0 if all(reach == FULL for reach in table.values()) else 2
     except KeyboardInterrupt:
         pass
     except BaseException:
