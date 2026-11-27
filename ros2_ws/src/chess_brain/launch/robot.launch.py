@@ -65,8 +65,9 @@ ARM = {
 # Used by executor:=chess_brain.kinova_executor:pick_and_place (the course's Kinova Gen3 Lite).
 KINOVA = {
     "use_sim_time": ("false", bool, "true when the arm runs in Gazebo"),
-    "speed": ("0.2", float, "velocity scaling of the large arm moves (at most 0.2 on the real arm)"),
+    "speed": ("0.2", float, "velocity scaling of the large arm moves (at most max_speed)"),
     "slow_speed": ("0.1", float, "velocity scaling of the descents onto the board"),
+    "max_speed": ("0.0", float, "upper limit for speed and slow_speed; 0 = 0.2 on the real arm, 1.0 in Gazebo"),
     "grip_height": ("0.02", float, "fingertips above the square when gripping a piece (m)"),
     "travel_clearance": ("0.15", float, "fingertips above the board while carrying (m)"),
     "place_clearance": ("0.003", float, "a piece is released this much higher than it was gripped (m)"),

@@ -355,7 +355,7 @@ The final demo runs on the arm used in Lab 6 and the midterm (Kinova Gen3 Lite, 
 | # | Addition | Notes |
 |---|---|---|
 | 1 | `kinova_executor.py`: `pick_and_place` for `arm_adapter_node`, the Lab 6 top-down sequence with heights derived from the board surface | pure logic, tested with a simulated arm that flags unsafe actions |
-| 2 | `kinova_arm.py`: the ROS node behind it (MoveIt2 + gripper + finger reading), adapted from the course's Lab 6 helpers; every motion speed-limited (0.2 max outside simulation), straight lines planned completely and collision-checked, plan/execution timeouts | needs the course container |
+| 2 | `kinova_arm.py`: the ROS node behind it (MoveIt2 + gripper + finger reading), adapted from the course's Lab 6 helpers; every motion speed-limited (0.2 max outside simulation unless the `max_speed` parameter sets another limit), straight lines planned completely and collision-checked, plan/execution timeouts | needs the course container |
 | 3 | `reach_check`: MoveIt IK for all 64 squares, the discard column and the spare queens at the carrying and gripping heights | decides where the board can stand |
 | 4 | `arm_adapter_node`: optional `prepare` and `operator` hooks of the executor; `PlacedButFailed` so a discard slot filled by a failed action is not reused; `offboard_drop` for captured pieces standing on the table | brings the arm to WORK before the first move; `retry` tells the arm its gripper was emptied |
 

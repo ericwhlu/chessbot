@@ -1,0 +1,123 @@
+Date: Fri 2026-11-27, about 02:30 to 03:10 (America/New_York)
+Machine: MacBook Pro (Apple M1 Pro), Docker Desktop, one linux/arm64 container from the image built by
+         docker/jazzy-moveit/Dockerfile (ROS 2 Jazzy, MoveIt), the Gen3 Lite on ros2_control mock hardware
+         (launch/mock_gen3_lite.launch.py): the joints follow their commands in real time, there is no
+         physics and nothing to grip. use_sim_time is false there, so this is the code path of the real
+         arm. NOT the course image, NOT Gazebo, not the real arm.
+Branch:  feature/integration, the commit this file belongs to (the max_speed parameter). The repository
+         was mounted read-only; the workspace was built in the container under /tmp/ws.
+Test:    the upper limit of the velocity scaling as a parameter. Until now anything above 0.2 was refused
+         unless use_sim_time was true. 0.2 is what the course's midterm required on the real arm; whether
+         the final project has such a rule is not known here.
+
+Result: PASS.
+  1. No speed parameters: limit 0.2 as before; a1 -> h1 on 40 mm squares takes 54 s.
+  2. speed:=0.6 slow_speed:=0.3 without max_speed: the executor does not start ("need ... speed <= 0.2").
+  3. max_speed:=0.6 speed:=0.6 slow_speed:=0.3: a warning that the limit outside simulation is raised,
+     then the same move in 33 s, no planning failure.
+  4. max_speed:=true and max_speed:=1.5: refused with a message that says why.
+  5. The same through robot.launch.py: max_speed:=0.6 arrives at the arm node; without it speed:=0.6
+     is refused.
+  Unit tests with the change: chess_brain 667 passed (20 new), chessbot_sim_ros 54 passed and 1 skipped
+  (on the Mac). One independent review of the change; its four points are in the code: the first move
+  after start-up stays at 0.2 at most, true/false is refused, the limit function takes keyword arguments
+  only, the README compares like with like.
+  Part 6 below runs the node-side function (kinova_arm.settings_from_parameters) with stand-ins for the
+  ROS modules on the Mac, for the values a parameter can arrive as.
+
+Not shown: Gazebo with the new code; the real arm. Nothing above 0.2 has run on the real arm, with or
+without a piece in the gripper.
+
+The lines "Killed" are the test script stopping the launches. Log lines are cut to 260 characters.
+
+====================================================================================================
+1 to 5. arm_adapter_node and robot.launch.py against MoveIt on mock hardware
+====================================================================================================
+colcon exit 0
+move_group is up
+===== default: no speed parameters
+[INFO] [chess_kinova_arm]: kinova_executor: Settings(gripper_length=0.157, grip_height=0.02, travel_clearance=0.15, place_clearance=0.003, open_position=0.5, speed=0.2, slow_speed=0.1, max_speed=0.2, grasp_check=False, missed_reading=0.75, park='work', floor_z
+[INFO] [arm_adapter]: executor prepared: the arm is ready
+a1 -> h1: 54 s; arm_done: id 1 ok; planning failures: 0
+===== refused: -p speed:=0.6 -p slow_speed:=0.3
+[ERROR] [arm_adapter]: executor could not prepare: ValueError: kinova_executor settings: need 0.01 <= slow_speed <= speed <= 0.2, the speed limit (0.2 outside simulation unless the max_speed parameter sets another) (it will try again on the first move)
+===== raised: -p max_speed:=0.6 -p speed:=0.6 -p slow_speed:=0.3
+[WARN] [chess_kinova_arm]: max_speed: the speed limit outside simulation is raised from 0.2 to 0.6 (speed and slow_speed scale velocity and acceleration alike; the returns to the parking pose use speed)
+[INFO] [chess_kinova_arm]: kinova_executor: Settings(gripper_length=0.157, grip_height=0.02, travel_clearance=0.15, place_clearance=0.003, open_position=0.5, speed=0.6, slow_speed=0.3, max_speed=0.6, grasp_check=False, missed_reading=0.75, park='work', floor_z
+[INFO] [arm_adapter]: executor prepared: the arm is ready
+a1 -> h1: 33 s; arm_done: id 1 ok; planning failures: 0
+===== boolean: -p max_speed:=true
+[ERROR] [arm_adapter]: executor could not prepare: ValueError: kinova_executor settings: max_speed True is not a number (it will try again on the first move)
+===== toohigh: -p max_speed:=1.5
+[ERROR] [arm_adapter]: executor could not prepare: ValueError: kinova_executor settings: max_speed 1.5 must be 0 (the default limit) or between 0.01 and 1.0 (it will try again on the first move)
+===== through robot.launch.py: max_speed:=0.6 speed:=0.6 slow_speed:=0.3
+[arm_adapter_node-3] [WARN] [chess_kinova_arm]: max_speed: the speed limit outside simulation is raised from 0.2 to 0.6 (speed and slow_speed scale velocity and acceleration alike; the returns to the parking pose use speed)
+[arm_adapter_node-3] [INFO] [chess_kinova_arm]: kinova_executor: Settings(gripper_length=0.157, grip_height=0.02, travel_clearance=0.15, place_clearance=0.003, open_position=0.5, speed=0.6, slow_speed=0.3, max_speed=0.6, grasp_check=False, missed_reading=0.75,
+===== through robot.launch.py: no max_speed, speed:=0.6
+bash: line 37:    48 Killed                  ros2 launch chess_brain mock_gen3_lite.launch.py > /out/moveit.log 2>&1
+bash: line 37:   823 Killed                  ros2 launch chess_brain robot.launch.py executor:=chess_brain.kinova_executor:pick_and_place grasp_check:=false square_size:=0.04 board_x:=0.492 board_y:=-0.16 board_yaw_deg:=90 surface_z:=-0.056 offboard_drop:=0.00
+[arm_adapter_node-3] [ERROR] [arm_adapter]: executor could not prepare: ValueError: kinova_executor settings: need 0.01 <= slow_speed <= speed <= 0.2, the speed limit (0.2 outside simulation unless the max_speed parameter sets another) (it will try again on th
+
+====================================================================================================
+6. kinova_arm.settings_from_parameters with stand-ins for the ROS modules
+====================================================================================================
+--- max_speed unset
+real, defaults                                             -> ok  speed=0.2 slow=0.1 max=0.2
+sim, defaults                                              -> ok  speed=0.2 slow=0.1 max=1.0
+real, speed 0.6 / 0.3                                      -> ValueError: kinova_executor settings: need 0.01 <= slow_speed <= speed <= 0.2, the speed limit (0.2 outside simulation unless the max_spee
+sim,  speed 0.6 / 0.3                                      -> ok  speed=0.6 slow=0.3 max=1.0
+sim ('true' string), speed 0.6/0.3                         -> ok  speed=0.6 slow=0.3 max=1.0
+--- max_speed set
+real, max 0.6, speed 0.6/0.3                               -> ok  speed=0.6 slow=0.3 max=0.6
+                                                              [warn] max_speed: the speed limit outside simulation is raised from 0.2 to 0.6 (speed and slow_speed scale velocity and acceleration alike
+real, max 0.6, speeds default                              -> ok  speed=0.2 slow=0.1 max=0.6
+                                                              [warn] max_speed: the speed limit outside simulation is raised from 0.2 to 0.6 (speed and slow_speed scale velocity and acceleration alike
+real, max 0.6, speed 0.7                                   -> ValueError: kinova_executor settings: need 0.01 <= slow_speed <= speed <= 0.6, the speed limit (0.2 outside simulation unless the max_spee
+                                                              [warn] max_speed: the speed limit outside simulation is raised from 0.2 to 0.6 (speed and slow_speed scale velocity and acceleration alike
+real, max 0.2 exactly                                      -> ok  speed=0.2 slow=0.1 max=0.2
+real, max 0.1 (lowered), speeds default                    -> ValueError: kinova_executor settings: need 0.01 <= slow_speed <= speed <= 0.1, the speed limit (0.2 outside simulation unless the max_spee
+real, max 0.1, speed 0.1/0.05                              -> ok  speed=0.1 slow=0.05 max=0.1
+sim,  max 0.3, speed 0.6/0.3                               -> ValueError: kinova_executor settings: need 0.01 <= slow_speed <= speed <= 0.3, the speed limit (0.2 outside simulation unless the max_spee
+sim,  max 0.3, speed 0.3/0.1                               -> ok  speed=0.3 slow=0.1 max=0.3
+--- types
+real, max int 1, speed 1.0/0.5                             -> ok  speed=1.0 slow=0.5 max=1.0
+                                                              [warn] max_speed: the speed limit outside simulation is raised from 0.2 to 1 (speed and slow_speed scale velocity and acceleration alike;
+real, max int 0                                            -> ok  speed=0.2 slow=0.1 max=0.2
+real, max -0.0                                             -> ok  speed=0.2 slow=0.1 max=0.2
+real, max bool True, speed 1.0/1.0                         -> ValueError: kinova_executor settings: max_speed True is not a number
+real, max bool False                                       -> ValueError: kinova_executor settings: max_speed False is not a number
+real, max str '0.6', speed 0.6/0.3                         -> ok  speed=0.6 slow=0.3 max=0.6
+                                                              [warn] max_speed: the speed limit outside simulation is raised from 0.2 to 0.6 (speed and slow_speed scale velocity and acceleration alike
+real, max str 'fast'                                       -> ValueError: kinova_executor settings: max_speed 'fast' is not a number
+real, max str ''                                           -> ValueError: kinova_executor settings: max_speed '' is not a number
+real, max None                                             -> ValueError: kinova_executor settings: max_speed None is not a number
+real, max list [0.6]                                       -> ValueError: kinova_executor settings: max_speed [0.6] is not a number
+--- out of range
+real, max -0.2                                             -> ValueError: kinova_executor settings: max_speed -0.2 must be 0 (the default limit) or between 0.01 and 1.0
+sim,  max -0.2                                             -> ValueError: kinova_executor settings: max_speed -0.2 must be 0 (the default limit) or between 0.01 and 1.0
+real, max -1e-12                                           -> ValueError: kinova_executor settings: max_speed -1e-12 must be 0 (the default limit) or between 0.01 and 1.0
+sim,  max -1e-12                                           -> ValueError: kinova_executor settings: max_speed -1e-12 must be 0 (the default limit) or between 0.01 and 1.0
+real, max 1e-12                                            -> ValueError: kinova_executor settings: max_speed 1e-12 must be 0 (the default limit) or between 0.01 and 1.0
+sim,  max 1e-12                                            -> ValueError: kinova_executor settings: max_speed 1e-12 must be 0 (the default limit) or between 0.01 and 1.0
+real, max 0.005                                            -> ValueError: kinova_executor settings: max_speed 0.005 must be 0 (the default limit) or between 0.01 and 1.0
+sim,  max 0.005                                            -> ValueError: kinova_executor settings: max_speed 0.005 must be 0 (the default limit) or between 0.01 and 1.0
+real, max 0.0099999                                        -> ValueError: kinova_executor settings: max_speed 0.0099999 must be 0 (the default limit) or between 0.01 and 1.0
+sim,  max 0.0099999                                        -> ValueError: kinova_executor settings: max_speed 0.0099999 must be 0 (the default limit) or between 0.01 and 1.0
+real, max 1.0000001                                        -> ValueError: kinova_executor settings: max_speed 1.0000001 must be 0 (the default limit) or between 0.01 and 1.0
+sim,  max 1.0000001                                        -> ValueError: kinova_executor settings: max_speed 1.0000001 must be 0 (the default limit) or between 0.01 and 1.0
+real, max 1.01                                             -> ValueError: kinova_executor settings: max_speed 1.01 must be 0 (the default limit) or between 0.01 and 1.0
+sim,  max 1.01                                             -> ValueError: kinova_executor settings: max_speed 1.01 must be 0 (the default limit) or between 0.01 and 1.0
+real, max 2.0                                              -> ValueError: kinova_executor settings: max_speed 2.0 must be 0 (the default limit) or between 0.01 and 1.0
+sim,  max 2.0                                              -> ValueError: kinova_executor settings: max_speed 2.0 must be 0 (the default limit) or between 0.01 and 1.0
+real, max nan                                              -> ValueError: kinova_executor settings: max_speed nan must be 0 (the default limit) or between 0.01 and 1.0
+sim,  max nan                                              -> ValueError: kinova_executor settings: max_speed nan must be 0 (the default limit) or between 0.01 and 1.0
+real, max inf                                              -> ValueError: kinova_executor settings: max_speed inf must be 0 (the default limit) or between 0.01 and 1.0
+sim,  max inf                                              -> ValueError: kinova_executor settings: max_speed inf must be 0 (the default limit) or between 0.01 and 1.0
+real, max -inf                                             -> ValueError: kinova_executor settings: max_speed -inf must be 0 (the default limit) or between 0.01 and 1.0
+sim,  max -inf                                             -> ValueError: kinova_executor settings: max_speed -inf must be 0 (the default limit) or between 0.01 and 1.0
+real, max 'nan'                                            -> ValueError: kinova_executor settings: max_speed 'nan' must be 0 (the default limit) or between 0.01 and 1.0
+sim,  max 'nan'                                            -> ValueError: kinova_executor settings: max_speed 'nan' must be 0 (the default limit) or between 0.01 and 1.0
+real, max 'inf'                                            -> ValueError: kinova_executor settings: max_speed 'inf' must be 0 (the default limit) or between 0.01 and 1.0
+sim,  max 'inf'                                            -> ValueError: kinova_executor settings: max_speed 'inf' must be 0 (the default limit) or between 0.01 and 1.0
+real, max 5                                                -> ValueError: kinova_executor settings: max_speed 5 must be 0 (the default limit) or between 0.01 and 1.0
+sim,  max 5                                                -> ValueError: kinova_executor settings: max_speed 5 must be 0 (the default limit) or between 0.01 and 1.0

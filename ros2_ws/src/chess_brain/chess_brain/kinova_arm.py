@@ -7,8 +7,8 @@ course Kinova container, with the arm's bring-up (Gazebo or the real arm) and Mo
 
 Differences from the lab helper:
 
-* every motion takes a speed factor, and outside simulation the settings refuse more than the
-  lab benches' limit of 0.2;
+* every motion takes a speed factor, and the settings refuse more than a limit: 0.2 outside
+  simulation (what the midterm required on the real arm) unless ``max_speed`` sets another;
 * straight-line motions must be planned completely (the lab helper accepts 90 % of the path) and
   are checked for collisions; a straight-line motion that fails while executing is not retried;
 * planning and execution get timeouts where the installed pymoveit2 offers them;
@@ -33,7 +33,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import JointState
 
 from .gen3_lite_kinematics import forward, grip_yaws, top_down_quaternion, top_down_solutions, yaw_candidates
-from .kinova_executor import FINGER_CLOSED, LAB_SPEED_LIMIT, TABLE_TOP_Z, Settings
+from .kinova_executor import FINGER_CLOSED, LAB_SPEED_LIMIT, TABLE_TOP_Z, Settings, speed_limit
 
 ARM_JOINTS = ["joint_1", "joint_2", "joint_3", "joint_4", "joint_5", "joint_6"]
 GRIPPER_JOINT = "right_finger_bottom_joint"
@@ -81,8 +81,9 @@ def _as_bool(value) -> bool:
 def settings_from_parameters(node: Node) -> Settings:
     """Read kinova_executor.Settings from the node's parameters (declared by KinovaArm).
 
-    Raises ValueError for a value that is not usable. On the real arm (``use_sim_time`` false)
-    the speeds may not exceed the lab limit; a simulation may go faster.
+    Raises ValueError for a value that is not usable. The speeds may not exceed the limit of
+    kinova_executor.speed_limit: 0.2 outside simulation (``use_sim_time`` false) and 1.0 in one,
+    unless the ``max_speed`` parameter sets another.
     """
     values = {}
     for name, default in SETTING_PARAMETERS.items():
@@ -97,7 +98,14 @@ def settings_from_parameters(node: Node) -> Settings:
         except (TypeError, ValueError):
             raise ValueError(f"parameter {name}: {value!r} is not a number") from None
     simulated = _as_bool(node.get_parameter("use_sim_time").value)
-    return Settings(max_speed=1.0 if simulated else LAB_SPEED_LIMIT, **values)
+    limit = speed_limit(simulated=simulated, max_speed=node.get_parameter("max_speed").value)
+    if not simulated and limit > LAB_SPEED_LIMIT:
+        node.get_logger().warn(
+            f"max_speed: the speed limit outside simulation is raised from {LAB_SPEED_LIMIT} to {limit:g} "
+            "(speed and slow_speed scale velocity and acceleration alike; the returns to the "
+            "parking pose use speed)"
+        )
+    return Settings(max_speed=limit, **values)
 
 
 class KinovaArm(Node):
@@ -107,6 +115,8 @@ class KinovaArm(Node):
         super().__init__(name)
         for parameter, default in SETTING_PARAMETERS.items():
             self.declare_parameter(parameter, default, ParameterDescriptor(dynamic_typing=True))
+        # 0 = the default limit of kinova_executor.speed_limit (0.2 outside simulation)
+        self.declare_parameter("max_speed", 0.0, ParameterDescriptor(dynamic_typing=True))
         self.declare_parameter("add_table", True, ParameterDescriptor(dynamic_typing=True))
 
         self.moveit2 = MoveIt2(

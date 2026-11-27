@@ -14,7 +14,7 @@ from chess_brain import kinova_executor
 from chess_brain.actions import actions_payload, move_to_actions
 from chess_brain.arm_adapter import PlacedButFailed, run_command
 from chess_brain.board_frame import BoardFrame, Locations
-from chess_brain.kinova_executor import RETRACT, WORK, PickPlace, Settings
+from chess_brain.kinova_executor import RETRACT, WORK, PickPlace, Settings, speed_limit
 from chess_brain.reach_check import GAME_DISCARDS, format_reach, kinematic_reach, reach_table
 
 SURFACE = -0.056
@@ -225,6 +225,62 @@ def test_speed_limit_is_the_lab_limit_unless_raised_for_simulation():
     assert S.speed <= 0.2 and S.slow_speed <= S.speed and S.max_speed == 0.2
     fast = Settings(speed=0.8, slow_speed=0.3, max_speed=1.0)
     assert fast.speed == 0.8
+
+
+def test_without_max_speed_the_limit_is_0_2_on_the_real_arm_and_1_in_simulation():
+    assert speed_limit(simulated=False) == 0.2
+    assert speed_limit(simulated=True) == 1.0
+    for unset in (0.0, 0, -0.0, "0", "0.0"):
+        assert speed_limit(simulated=False, max_speed=unset) == 0.2
+        assert speed_limit(simulated=True, max_speed=unset) == 1.0
+    with pytest.raises(ValueError):                      # the default on the real arm still refuses
+        Settings(speed=0.6, slow_speed=0.3, max_speed=speed_limit(simulated=False))
+
+
+def test_max_speed_sets_the_limit_wherever_the_arm_runs():
+    assert speed_limit(simulated=False, max_speed=0.6) == 0.6     # raised on the real arm
+    assert speed_limit(simulated=True, max_speed=0.3) == 0.3      # and lowered in a simulation
+    assert speed_limit(simulated=False, max_speed=1.0) == 1.0
+    assert speed_limit(simulated=False, max_speed=0.01) == 0.01
+    assert speed_limit(simulated=False, max_speed=1) == 1.0       # as an integer parameter arrives
+    assert speed_limit(simulated=False, max_speed="0.6") == 0.6   # and as a string
+    fast = Settings(speed=0.6, slow_speed=0.3, max_speed=speed_limit(simulated=False, max_speed=0.6))
+    assert (fast.speed, fast.slow_speed, fast.max_speed) == (0.6, 0.3, 0.6)
+    with pytest.raises(ValueError):                      # the limit holds for what was asked beyond it
+        Settings(speed=0.7, slow_speed=0.3, max_speed=speed_limit(simulated=False, max_speed=0.6))
+    with pytest.raises(ValueError):                      # a lowered limit also refuses the defaults' speed
+        Settings(max_speed=speed_limit(simulated=True, max_speed=0.1))
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [-0.2, 1e-12, 0.005, 1.01, 2.0, 5, float("nan"), float("inf"), "nan", "inf", "fast", "", None, [0.6], True, False],
+)
+def test_max_speed_that_is_not_a_usable_number_is_refused(bad):
+    for simulated in (False, True):
+        with pytest.raises(ValueError):
+            speed_limit(simulated=simulated, max_speed=bad)
+
+
+def test_the_speed_limit_takes_keyword_arguments_only():
+    # speed_limit(0.6, False) would otherwise read "a simulation, limit not set" and allow 1.0
+    with pytest.raises(TypeError):
+        speed_limit(False, 0.6)
+    with pytest.raises(TypeError):
+        speed_limit(0.6, False)
+
+
+def test_the_first_move_to_work_stays_at_the_default_limit_however_fast_the_rest_is():
+    fast = Settings(speed=0.6, slow_speed=0.3, max_speed=speed_limit(simulated=False, max_speed=0.6))
+    arm = FakeArm()
+    runner = PickPlace(arm, fast)
+    assert runner.prepare() is None
+    assert arm.calls[-1] == ("joints", WORK, 0.2)        # from wherever the arm was left: not fast
+    assert runner(PICK, PLACE, INFO) is None
+    assert arm.calls[-1] == ("joints", WORK, 0.6)        # parking after a move uses speed
+    assert arm.violations == []
+    speeds = [call[-1] for call in arm.calls if call[0] in ("pose", "joints")]
+    assert max(speeds) == 0.6 and all(call[-1] == 0.3 for call in arm.poses() if call[3] < TRAVEL)
 
 
 # ----------------------------------------------------------------- happy path

@@ -69,8 +69,36 @@ FINGER_CLOSED = 0.8
 FINGER_TOLERANCE = 0.06   # an "open" within this of open_position counts as done
 FINGER_MOVED = 0.01       # a "close" must end at least this far past open_position
 
-LAB_SPEED_LIMIT = 0.2     # velocity scaling allowed on the real arm at the lab benches
+# Upper limit of the velocity scaling when the max_speed parameter is not set. 0.2 is what the
+# course's midterm required of every motion on the real arm; nothing here knows whether the
+# final project has such a rule, so going faster on the real arm takes an explicit max_speed.
+LAB_SPEED_LIMIT = 0.2     # outside simulation
+SIM_SPEED_LIMIT = 1.0     # in a simulation
 TABLE_TOP_Z = -0.0627     # the tabletop in base_link (the arm stands on a 62.7 mm mount)
+
+
+def speed_limit(*, simulated: bool, max_speed=0.0) -> float:
+    """The upper limit for ``Settings.speed`` and ``Settings.slow_speed``.
+
+    ``max_speed`` is the arm node's parameter of that name as it arrives (a number, or a string
+    holding one): 0 (not set) gives 0.2 outside simulation and 1.0 in a simulation; a value from
+    0.01 to 1.0 is the limit wherever the arm runs. Anything else raises ValueError, true/false
+    included. Keyword arguments only, so that the two cannot be swapped.
+    """
+    if isinstance(max_speed, bool):
+        raise ValueError(f"kinova_executor settings: max_speed {max_speed!r} is not a number")
+    try:
+        limit = float(max_speed)
+    except (TypeError, ValueError):
+        raise ValueError(f"kinova_executor settings: max_speed {max_speed!r} is not a number") from None
+    if limit == 0.0:
+        return SIM_SPEED_LIMIT if simulated else LAB_SPEED_LIMIT
+    if not 0.01 <= limit <= 1.0:
+        raise ValueError(
+            f"kinova_executor settings: max_speed {max_speed!r} must be 0 (the default limit) "
+            "or between 0.01 and 1.0"
+        )
+    return limit
 
 
 @dataclass(frozen=True)
@@ -83,7 +111,7 @@ class Settings:
     #                                  above; fully open is wider than the neighbours allow)
     speed: float = 0.2               # velocity/acceleration scaling of the moves at carrying height
     slow_speed: float = 0.1          # ... of the straight descents and lifts
-    max_speed: float = LAB_SPEED_LIMIT  # upper limit for both; only a simulation may raise it
+    max_speed: float = LAB_SPEED_LIMIT  # upper limit for both; see speed_limit()
     grasp_check: bool = True         # check every finger command against the measured position
     missed_reading: float = 0.75     # finger position at or above this after closing = no piece
     park: str = "work"               # where to go after the last action of a move: work | retract
@@ -104,7 +132,8 @@ class Settings:
         need(0.01 <= self.max_speed <= 1.0, "max_speed must be between 0.01 and 1.0")
         need(
             0.01 <= self.slow_speed <= self.speed <= self.max_speed,
-            f"need 0.01 <= slow_speed <= speed <= {self.max_speed:g} (the limit on the real arm is {LAB_SPEED_LIMIT})",
+            f"need 0.01 <= slow_speed <= speed <= {self.max_speed:g}, the speed limit "
+            f"({LAB_SPEED_LIMIT} outside simulation unless the max_speed parameter sets another)",
         )
         need(0.0 <= self.open_position < FINGER_CLOSED, "open_position must be between 0.0 and 0.8")
         need(
@@ -142,13 +171,17 @@ class PickPlace:
 
     # ------------------------------------------------------------------ start-up
     def prepare(self) -> Optional[str]:
-        """Wait for MoveIt, add the table to the planning scene and go to WORK. Safe to call again."""
+        """Wait for MoveIt, add the table to the planning scene and go to WORK. Safe to call again.
+
+        This first move starts from wherever the arm was left, so it never goes faster than the
+        default limit, whatever ``speed`` and ``max_speed`` say.
+        """
         if self._ready:
             return None
         if not self._arm.wait_until_ready():
             return "MoveIt is not ready (are the arm's bring-up and MoveIt running?)"
         self._arm.add_table()
-        if not self._arm.move_to_joints(list(WORK), self._s.speed):
+        if not self._arm.move_to_joints(list(WORK), min(self._s.speed, LAB_SPEED_LIMIT)):
             return "could not move the arm to its WORK pose"
         self._ready = True
         self._log("arm ready at the WORK pose")

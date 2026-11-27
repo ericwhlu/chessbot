@@ -336,7 +336,8 @@ of 2026-10-15) the simulated gripper does not move
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `speed` / `slow_speed` | `0.2` / `0.1` | velocity scaling of the moves at carrying height / of the descents and lifts. Above 0.2 is refused unless `use_sim_time` is true |
+| `speed` / `slow_speed` | `0.2` / `0.1` | velocity and acceleration scaling of the moves at carrying height and of every return to the parking pose / of the descents and lifts. Above `max_speed` is refused |
+| `max_speed` | `0` | upper limit for both. `0` = the default limit: 0.2 on the real arm (what the midterm required of every motion there), 1.0 when `use_sim_time` is true. A value from 0.01 to 1.0 is the limit wherever the arm runs, e.g. `max_speed:=0.6 speed:=0.6 slow_speed:=0.3`; the arm node warns when it is above 0.2 outside simulation. The first move after start-up (to WORK, from wherever the arm was left) stays at 0.2 at most. With MoveIt on mock hardware one move (a1 to h1 on 40 mm squares) took about 53 s at 0.2 / 0.1 and about 32 s at 0.6 / 0.3; nothing above 0.2 has run on the real arm |
 | `grip_height` | `0.02` | fingertips above the square when closing on a piece (m) |
 | `travel_clearance` | `0.15` | fingertips above the board while carrying (m); must clear the tallest piece plus the carried one |
 | `place_clearance` | `0.003` | a piece is released this much higher than it was gripped (m) |
