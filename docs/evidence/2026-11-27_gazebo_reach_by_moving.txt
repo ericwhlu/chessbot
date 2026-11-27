@@ -1,0 +1,343 @@
+Date: Fri 2026-11-27, about 01:05 to 02:20 (America/New_York)
+Machine: course VM vcm-54426, ROS 2 Jazzy in
+         ghcr.io/mems-intro-to-robotics/mems-robotics-toolkit:kinova-jazzy-20260924; Gazebo station from
+         the course's Lab 6 launch (Gen3 Lite, gen3_lite_2f gripper), MoveIt from
+         kinova_gen3_lite_moveit_config sim.launch.py use_sim_time:=true. The container was started
+         detached and driven over SSH; Gazebo's window was on the VM's desktop.
+Branch:  feature/integration @ f15ed52 (the VM's clone; the code is the same as a6bfc08)
+Test:    the reach conclusions by MOVING the arm (arm_adapter_node with kinova_executor:pick_and_place,
+         grasp_check off, no pieces), not only by asking MoveIt for joint angles; whether a 400 mm board
+         fits anywhere if it is pushed towards the arm; how long one move takes at higher speeds.
+         The three Lab 6 blocks stand at x 0.44, inside the board area, and were moved to x 0.75 first.
+         Distances are from the arm's base axis to the centre of the square.
+
+Result:
+  1. 320 mm board (40 mm squares, board_x:=0.492 board_y:=-0.16): the far corners a1 -> h1 and h1 -> a1
+     (0.492 m) and the squares nearest the base d8 -> e8 (0.193 m): all "arm_done ok", no planning
+     failure.
+  2. 400 mm board where the mount plate allows it (50 mm squares, board_x:=0.572 board_y:=-0.20):
+     b2 -> g2 (0.512 m) ok; d1, straight ahead on the far rank (0.548 m): three planning failures and
+     "could not reach above d1; no piece was moved".
+  3. The 400 mm board pushed towards the arm, reach_check with discard_slots 0. Near edge of the playing
+     area at 0.152 m (board_x:=0.552): 56 of 64, the far rank is out; at 0.132: 60 (a1 b1 g1 h1 out);
+     at 0.112: 62 (a1 h1 out); at 0.092: 64 of 64. MoveIt and the package's kinematics agree every time.
+  4. But at 0.092 the arm cannot use that position. Run with surface_z:=-0.0434 (the board would lie on
+     the mount plate there): the far corners a1 -> h1 are reached, b8 -> g8 (0.171 m) and d7 -> e7
+     (0.169 m) work, but d8 (0.120 m) and c8 (0.139 m) end with "could not descend": the straight line
+     down from the carrying height is planned for 15 to 37 % only. d8 fails the same way with the
+     fingers along 0, 90 and 135 degrees. So pushing the board in trades the far rank for the middle of
+     the near rank, and no position of a 400 mm board gives all 64 squares. (The positions 0.112 and
+     0.132 were not tried by moving; that they do not work either follows from the distances.)
+  5. reach_check is too optimistic close to the base: it asks for joint angles at the carrying and at
+     the gripping height, not whether the arm can travel straight down between them. The usable inner
+     distance is between 0.14 and 0.17 m. The 320 mm board is not affected (nearest squares at 0.19 m,
+     moved to in part 1).
+  6. One move, a1 -> h1 on the 320 mm board, in SIMULATION time (the VM's four cores were saturated and
+     Gazebo ran at about half of real time by then; earlier, at 0.96 of real time, the same move took
+     64 s on the wall clock):
+       defaults (speed 0.2, slow_speed 0.1, travel_clearance 0.15)          54.1 s
+       slow_speed:=0.2                                                       48.6 s
+       slow_speed:=0.2 travel_clearance:=0.10                                41.9 s
+       speed:=0.6 slow_speed:=0.3 travel_clearance:=0.10                     28.9 s
+     All four "arm_done ok", no planning failure.
+
+Not shown: the real arm; pieces in the gripper at any speed; a tilted gripper. Screenshots of Gazebo
+were taken (the arm at a1, h1 and b2) but are not in the repository.
+
+Log lines are cut to 260 characters; the wall-clock stamps of the arm logs are left out. The lines
+"Planning failed!" in part 4 under b8 -> g8 are the straight carry across in front of the base, which
+the executor then replaces by a free-space plan.
+
+====================================================================================================
+1. 320 mm board: a1 -> h1, h1 -> a1 (arm_adapter_node log)
+====================================================================================================
+[WARN] [arm_adapter]: preparing the executor now: THE ARM MAY MOVE
+[INFO] [arm_adapter]: arm_adapter ready: executor chess_brain.kinova_executor:pick_and_place; a1 at (0.472, -0.140, -0.0560), h8 at (0.192, 0.140, -0.0560); grip direction: auto; looking at the board before moving: off
+[INFO] [chess_kinova_arm]: kinova_executor: Settings(gripper_length=0.157, grip_height=0.02, travel_clearance=0.15, place_clearance=0.003, open_position=0.5, speed=0.2, slow_speed=0.1, max_speed=1.0, grasp_check=False, missed_reading=0.75, park='work', floor_z
+[INFO] [chess_kinova_arm]: MoveIt is ready.
+[INFO] [chess_kinova_arm]: end_effector_link: this package's kinematics and MoveIt differ by 0.00 mm.
+[INFO] [chess_kinova_arm]: Added the table and mount to MoveIt's planning scene.
+[INFO] [chess_kinova_arm]: arm ready at the WORK pose
+[INFO] [arm_adapter]: executor prepared: the arm is ready
+[INFO] [arm_adapter]: arm_actions: id 1 move a1h1 (1 action(s))
+[INFO] [chess_kinova_arm]: action 1/1: a1 (0.472, -0.140) -> h1 (0.472, 0.140)
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.472, -0.140, 0.251)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.472, -0.140, 0.121)
+[INFO] [chess_kinova_arm]: a1: fingers closed at 0.80
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.472, -0.140, 0.251)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.472, 0.140, 0.251)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.472, 0.140, 0.124)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.472, 0.140, 0.251)
+[INFO] [arm_adapter]: arm_done: id 1 ok
+[INFO] [arm_adapter]: arm_actions: id 2 move h1a1 (1 action(s))
+[INFO] [chess_kinova_arm]: action 1/1: h1 (0.472, 0.140) -> a1 (0.472, -0.140)
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.472, 0.140, 0.251)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.472, 0.140, 0.121)
+[INFO] [chess_kinova_arm]: h1: fingers closed at 0.80
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.472, 0.140, 0.251)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.472, -0.140, 0.251)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.472, -0.140, 0.124)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.472, -0.140, 0.251)
+[INFO] [arm_adapter]: arm_done: id 2 ok
+
+====================================================================================================
+1. 320 mm board: d8 -> e8, the squares nearest the base
+====================================================================================================
+[WARN] [arm_adapter]: preparing the executor now: THE ARM MAY MOVE
+[INFO] [arm_adapter]: arm_adapter ready: executor chess_brain.kinova_executor:pick_and_place; a1 at (0.472, -0.140, -0.0560), h8 at (0.192, 0.140, -0.0560); grip direction: auto; looking at the board before moving: off
+[INFO] [chess_kinova_arm]: kinova_executor: Settings(gripper_length=0.157, grip_height=0.02, travel_clearance=0.15, place_clearance=0.003, open_position=0.5, speed=0.2, slow_speed=0.1, max_speed=1.0, grasp_check=False, missed_reading=0.75, park='work', floor_z
+[INFO] [chess_kinova_arm]: MoveIt is ready.
+[INFO] [chess_kinova_arm]: end_effector_link: this package's kinematics and MoveIt differ by 0.00 mm.
+[INFO] [chess_kinova_arm]: Added the table and mount to MoveIt's planning scene.
+[INFO] [chess_kinova_arm]: arm ready at the WORK pose
+[INFO] [arm_adapter]: executor prepared: the arm is ready
+[INFO] [arm_adapter]: arm_actions: id 1 move d8e8 (1 action(s))
+[INFO] [chess_kinova_arm]: action 1/1: d8 (0.192, -0.020) -> e8 (0.192, 0.020)
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.192, -0.020, 0.251)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.192, -0.020, 0.121)
+[INFO] [chess_kinova_arm]: d8: fingers closed at 0.80
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.192, -0.020, 0.251)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.192, 0.020, 0.251)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.192, 0.020, 0.124)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.192, 0.020, 0.251)
+[INFO] [arm_adapter]: arm_done: id 1 ok
+
+====================================================================================================
+2. 400 mm board at board_x:=0.572: b2 -> g2, then d1
+====================================================================================================
+[WARN] [arm_adapter]: preparing the executor now: THE ARM MAY MOVE
+[INFO] [arm_adapter]: arm_adapter ready: executor chess_brain.kinova_executor:pick_and_place; a1 at (0.547, -0.175, -0.0560), h8 at (0.197, 0.175, -0.0560); grip direction: auto; looking at the board before moving: off
+[INFO] [chess_kinova_arm]: kinova_executor: Settings(gripper_length=0.157, grip_height=0.02, travel_clearance=0.15, place_clearance=0.003, open_position=0.5, speed=0.2, slow_speed=0.1, max_speed=1.0, grasp_check=False, missed_reading=0.75, park='work', floor_z
+[INFO] [chess_kinova_arm]: MoveIt is ready.
+[INFO] [chess_kinova_arm]: end_effector_link: this package's kinematics and MoveIt differ by 0.00 mm.
+[INFO] [chess_kinova_arm]: Added the table and mount to MoveIt's planning scene.
+[INFO] [chess_kinova_arm]: arm ready at the WORK pose
+[INFO] [arm_adapter]: executor prepared: the arm is ready
+[INFO] [arm_adapter]: arm_actions: id 1 move b2g2 (1 action(s))
+[INFO] [chess_kinova_arm]: action 1/1: b2 (0.497, -0.125) -> g2 (0.497, 0.125)
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.497, -0.125, 0.251)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.497, -0.125, 0.121)
+[INFO] [chess_kinova_arm]: b2: fingers closed at 0.80
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.497, -0.125, 0.251)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.497, 0.125, 0.251)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.497, 0.125, 0.124)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.497, 0.125, 0.251)
+[INFO] [arm_adapter]: arm_done: id 1 ok
+[INFO] [arm_adapter]: arm_actions: id 2 move d1d2 (1 action(s))
+[INFO] [chess_kinova_arm]: action 1/1: d1 (0.547, -0.025) -> d2 (0.497, -0.025)
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.547, -0.025, 0.251)
+[WARN] [chess_kinova_arm]: Planning failed! Error code: 99999.
+[WARN] [chess_kinova_arm]: Planning attempt 1 of 3 for a pose-goal motion to (0.547, -0.025, 0.251) failed.
+[WARN] [chess_kinova_arm]: Planning failed! Error code: 99999.
+[WARN] [chess_kinova_arm]: Planning attempt 2 of 3 for a pose-goal motion to (0.547, -0.025, 0.251) failed.
+[WARN] [chess_kinova_arm]: Planning failed! Error code: 99999.
+[WARN] [chess_kinova_arm]: Planning attempt 3 of 3 for a pose-goal motion to (0.547, -0.025, 0.251) failed.
+[ERROR] [chess_kinova_arm]: Could not plan or execute a pose-goal motion to (0.547, -0.025, 0.251).
+[ERROR] [arm_adapter]: arm_done: id 2 FAILED at action 0: could not reach above d1; no piece was moved
+
+====================================================================================================
+3. 400 mm board pushed towards the arm: reach_check for four positions
+====================================================================================================
+===== 50 mm squares, board_x:=0.552 (near edge of the playing area at x = 0.152 m)
+[INFO] [chess_reach_check]: MoveIt is ready.
+[INFO] [chess_reach_check]: end_effector_link: this package's kinematics and MoveIt differ by 0.00 mm.
+[INFO] [chess_reach_check]: Added the table and mount to MoveIt's planning scene.
+[INFO] [chess_reach_check]: checking the board: a1 at (0.527, -0.175), h8 at (0.177, 0.175), surface z -0.0560; carrying at z 0.251, gripping at z 0.121 (end_effector_link in base_link); 0 places for captured pieces; asking MoveIt's compute_ik (collision-aware
+  8  # # # # # # # #
+  7  # # # # # # # #
+  6  # # # # # # # #
+  5  # # # # # # # #
+  4  # # # # # # # #
+  3  # # # # # # # #
+  2  # # # # # # # #
+  1  . . . . . . . .
+     a b c d e f g h
+  squares fully reachable: 56 of 64
+  not fully reachable: a1 b1 c1 d1 e1 f1 g1 h1
+  off-board: SPARE_Q_B #  SPARE_Q_W .
+  by joint angles alone (no collision check): 56 of 64 squares
+  MoveIt and the kinematics agree on every location, at both heights
+[ros2run]: Process exited with failure 2
+exit code 2, 238 s
+===== 50 mm squares, board_x:=0.532 (near edge of the playing area at x = 0.132 m)
+[INFO] [chess_reach_check]: MoveIt is ready.
+[INFO] [chess_reach_check]: end_effector_link: this package's kinematics and MoveIt differ by 0.00 mm.
+[INFO] [chess_reach_check]: Added the table and mount to MoveIt's planning scene.
+[INFO] [chess_reach_check]: checking the board: a1 at (0.507, -0.175), h8 at (0.157, 0.175), surface z -0.0560; carrying at z 0.251, gripping at z 0.121 (end_effector_link in base_link); 0 places for captured pieces; asking MoveIt's compute_ik (collision-aware
+  8  # # # # # # # #
+  7  # # # # # # # #
+  6  # # # # # # # #
+  5  # # # # # # # #
+  4  # # # # # # # #
+  3  # # # # # # # #
+  2  # # # # # # # #
+  1  . . # # # # . .
+     a b c d e f g h
+  squares fully reachable: 60 of 64
+  not fully reachable: a1 b1 g1 h1
+  off-board: SPARE_Q_B #  SPARE_Q_W .
+  by joint angles alone (no collision check): 60 of 64 squares
+  MoveIt and the kinematics agree on every location, at both heights
+[ros2run]: Process exited with failure 2
+exit code 2, 235 s
+===== 50 mm squares, board_x:=0.512 (near edge of the playing area at x = 0.112 m)
+[INFO] [chess_reach_check]: MoveIt is ready.
+[INFO] [chess_reach_check]: end_effector_link: this package's kinematics and MoveIt differ by 0.00 mm.
+[INFO] [chess_reach_check]: Added the table and mount to MoveIt's planning scene.
+[INFO] [chess_reach_check]: checking the board: a1 at (0.487, -0.175), h8 at (0.137, 0.175), surface z -0.0560; carrying at z 0.251, gripping at z 0.121 (end_effector_link in base_link); 0 places for captured pieces; asking MoveIt's compute_ik (collision-aware
+  8  # # # # # # # #
+  7  # # # # # # # #
+  6  # # # # # # # #
+  5  # # # # # # # #
+  4  # # # # # # # #
+  3  # # # # # # # #
+  2  # # # # # # # #
+  1  . # # # # # # .
+     a b c d e f g h
+  squares fully reachable: 62 of 64
+  not fully reachable: a1 h1
+  off-board: SPARE_Q_B #  SPARE_Q_W .
+  by joint angles alone (no collision check): 62 of 64 squares
+  MoveIt and the kinematics agree on every location, at both heights
+[ros2run]: Process exited with failure 2
+exit code 2, 224 s
+===== 50 mm squares, board_x:=0.492 (near edge of the playing area at x = 0.092 m)
+[INFO] [chess_reach_check]: MoveIt is ready.
+[INFO] [chess_reach_check]: end_effector_link: this package's kinematics and MoveIt differ by 0.00 mm.
+[INFO] [chess_reach_check]: Added the table and mount to MoveIt's planning scene.
+[INFO] [chess_reach_check]: checking the board: a1 at (0.467, -0.175), h8 at (0.117, 0.175), surface z -0.0560; carrying at z 0.251, gripping at z 0.121 (end_effector_link in base_link); 0 places for captured pieces; asking MoveIt's compute_ik (collision-aware
+  8  # # # # # # # #
+  7  # # # # # # # #
+  6  # # # # # # # #
+  5  # # # # # # # #
+  4  # # # # # # # #
+  3  # # # # # # # #
+  2  # # # # # # # #
+  1  # # # # # # # #
+     a b c d e f g h
+  squares fully reachable: 64 of 64
+  off-board: SPARE_Q_B #  SPARE_Q_W .
+  by joint angles alone (no collision check): 64 of 64 squares
+  MoveIt and the kinematics agree on every location, at both heights
+[ros2run]: Process exited with failure 2
+exit code 2, 230 s
+SWEEP DONE
+
+====================================================================================================
+4. 400 mm board at board_x:=0.492, surface_z:=-0.0434: d8 -> e8, a1 -> h1, c8 -> f8, b8 -> g8, d7 -> e7, then d8 with three finger directions
+====================================================================================================
+[WARN] [arm_adapter]: preparing the executor now: THE ARM MAY MOVE
+[INFO] [arm_adapter]: arm_adapter ready: executor chess_brain.kinova_executor:pick_and_place; a1 at (0.467, -0.175, -0.0434), h8 at (0.117, 0.175, -0.0434); grip direction: auto; looking at the board before moving: off
+[INFO] [chess_kinova_arm]: kinova_executor: Settings(gripper_length=0.157, grip_height=0.02, travel_clearance=0.15, place_clearance=0.003, open_position=0.5, speed=0.2, slow_speed=0.1, max_speed=1.0, grasp_check=False, missed_reading=0.75, park='work', floor_z
+[INFO] [chess_kinova_arm]: MoveIt is ready.
+[INFO] [chess_kinova_arm]: end_effector_link: this package's kinematics and MoveIt differ by 0.00 mm.
+[INFO] [chess_kinova_arm]: Added the table and mount to MoveIt's planning scene.
+[INFO] [chess_kinova_arm]: arm ready at the WORK pose
+[INFO] [arm_adapter]: executor prepared: the arm is ready
+[INFO] [arm_adapter]: arm_actions: id 1 move d8e8 (1 action(s))
+[INFO] [chess_kinova_arm]: action 1/1: d8 (0.117, -0.025) -> e8 (0.117, 0.025)
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.117, -0.025, 0.264)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.117, -0.025, 0.134)
+[WARN] [chess_kinova_arm]: Planning failed! Cartesian planner completed 0.18518518518518517 of the trajectory, less than the threshold 0.999.
+[WARN] [chess_kinova_arm]: Planning attempt 1 of 3 for a straight-line motion to (0.117, -0.025, 0.134) failed.
+[WARN] [chess_kinova_arm]: Planning failed! Cartesian planner completed 0.18518518518518517 of the trajectory, less than the threshold 0.999.
+[WARN] [chess_kinova_arm]: Planning attempt 2 of 3 for a straight-line motion to (0.117, -0.025, 0.134) failed.
+[WARN] [chess_kinova_arm]: Planning failed! Cartesian planner completed 0.18518518518518517 of the trajectory, less than the threshold 0.999.
+[WARN] [chess_kinova_arm]: Planning attempt 3 of 3 for a straight-line motion to (0.117, -0.025, 0.134) failed.
+[ERROR] [chess_kinova_arm]: Could not plan or execute a straight-line motion to (0.117, -0.025, 0.134).
+[ERROR] [arm_adapter]: arm_done: id 1 FAILED at action 0: could not descend onto d8; no piece was moved
+[INFO] [arm_adapter]: arm_actions: id 2 move a1h1 (1 action(s))
+[INFO] [chess_kinova_arm]: action 1/1: a1 (0.467, -0.175) -> h1 (0.467, 0.175)
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.467, -0.175, 0.264)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.467, -0.175, 0.134)
+[INFO] [chess_kinova_arm]: a1: fingers closed at 0.80
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.467, -0.175, 0.264)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.467, 0.175, 0.264)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.467, 0.175, 0.137)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.467, 0.175, 0.264)
+[INFO] [arm_adapter]: arm_done: id 2 ok
+[INFO] [arm_adapter]: arm_actions: id 3 move c8f8 (1 action(s))
+[INFO] [chess_kinova_arm]: action 1/1: c8 (0.117, -0.075) -> f8 (0.117, 0.075)
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.117, -0.075, 0.264)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.117, -0.075, 0.134)
+[WARN] [chess_kinova_arm]: Planning failed! Cartesian planner completed 0.37037037037037035 of the trajectory, less than the threshold 0.999.
+[WARN] [chess_kinova_arm]: Planning attempt 1 of 3 for a straight-line motion to (0.117, -0.075, 0.134) failed.
+[WARN] [chess_kinova_arm]: Planning failed! Cartesian planner completed 0.37037037037037035 of the trajectory, less than the threshold 0.999.
+[WARN] [chess_kinova_arm]: Planning attempt 2 of 3 for a straight-line motion to (0.117, -0.075, 0.134) failed.
+[WARN] [chess_kinova_arm]: Planning failed! Cartesian planner completed 0.37037037037037035 of the trajectory, less than the threshold 0.999.
+[WARN] [chess_kinova_arm]: Planning attempt 3 of 3 for a straight-line motion to (0.117, -0.075, 0.134) failed.
+[ERROR] [chess_kinova_arm]: Could not plan or execute a straight-line motion to (0.117, -0.075, 0.134).
+[ERROR] [arm_adapter]: arm_done: id 3 FAILED at action 0: could not descend onto c8; no piece was moved
+[INFO] [arm_adapter]: arm_actions: id 4 move b8g8 (1 action(s))
+[INFO] [chess_kinova_arm]: action 1/1: b8 (0.117, -0.125) -> g8 (0.117, 0.125)
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.117, -0.125, 0.264)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.117, -0.125, 0.134)
+[INFO] [chess_kinova_arm]: b8: fingers closed at 0.80
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.117, -0.125, 0.264)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.117, 0.125, 0.264)
+[WARN] [chess_kinova_arm]: Planning failed! Cartesian planner completed 0.74 of the trajectory, less than the threshold 0.999.
+[WARN] [chess_kinova_arm]: Planning attempt 1 of 3 for a straight-line motion to (0.117, 0.125, 0.264) failed.
+[WARN] [chess_kinova_arm]: Planning failed! Cartesian planner completed 0.74 of the trajectory, less than the threshold 0.999.
+[WARN] [chess_kinova_arm]: Planning attempt 2 of 3 for a straight-line motion to (0.117, 0.125, 0.264) failed.
+[WARN] [chess_kinova_arm]: Planning failed! Cartesian planner completed 0.74 of the trajectory, less than the threshold 0.999.
+[WARN] [chess_kinova_arm]: Planning attempt 3 of 3 for a straight-line motion to (0.117, 0.125, 0.264) failed.
+[ERROR] [chess_kinova_arm]: Could not plan or execute a straight-line motion to (0.117, 0.125, 0.264).
+[INFO] [chess_kinova_arm]: no straight line to (0.117, 0.125); letting MoveIt choose a path
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.117, 0.125, 0.264)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.117, 0.125, 0.137)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.117, 0.125, 0.264)
+[INFO] [arm_adapter]: arm_done: id 4 ok
+[INFO] [arm_adapter]: arm_actions: id 5 move d7e7 (1 action(s))
+[INFO] [chess_kinova_arm]: action 1/1: d7 (0.167, -0.025) -> e7 (0.167, 0.025)
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.167, -0.025, 0.264)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.167, -0.025, 0.134)
+[INFO] [chess_kinova_arm]: d7: fingers closed at 0.80
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.167, -0.025, 0.264)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.167, 0.025, 0.264)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.167, 0.025, 0.137)
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.167, 0.025, 0.264)
+[INFO] [arm_adapter]: arm_done: id 5 ok
+[INFO] [arm_adapter]: arm_actions: id 6 move d8d6 (1 action(s))
+[INFO] [chess_kinova_arm]: action 1/1: d8 (0.117, -0.025) -> d6 (0.217, -0.025); fingers open along 0 deg at the pick, 0 deg at the place
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.117, -0.025, 0.264), tool yaw 90 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.117, -0.025, 0.134), tool yaw 90 deg
+[WARN] [chess_kinova_arm]: Planning failed! Cartesian planner completed 0.18518518518518517 of the trajectory, less than the threshold 0.999.
+[WARN] [chess_kinova_arm]: Planning attempt 1 of 3 for a straight-line motion to (0.117, -0.025, 0.134), tool yaw 90 deg failed.
+[WARN] [chess_kinova_arm]: Planning failed! Cartesian planner completed 0.18518518518518517 of the trajectory, less than the threshold 0.999.
+[WARN] [chess_kinova_arm]: Planning attempt 2 of 3 for a straight-line motion to (0.117, -0.025, 0.134), tool yaw 90 deg failed.
+[WARN] [chess_kinova_arm]: Planning failed! Cartesian planner completed 0.18518518518518517 of the trajectory, less than the threshold 0.999.
+[WARN] [chess_kinova_arm]: Planning attempt 3 of 3 for a straight-line motion to (0.117, -0.025, 0.134), tool yaw 90 deg failed.
+[ERROR] [chess_kinova_arm]: Could not plan or execute a straight-line motion to (0.117, -0.025, 0.134), tool yaw 90 deg.
+[ERROR] [arm_adapter]: arm_done: id 6 FAILED at action 0: could not descend onto d8; no piece was moved
+[INFO] [arm_adapter]: arm_actions: id 7 move d8d6 (1 action(s))
+[INFO] [chess_kinova_arm]: action 1/1: d8 (0.117, -0.025) -> d6 (0.217, -0.025); fingers open along 90 deg at the pick, 90 deg at the place
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.117, -0.025, 0.264), tool yaw 0 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.117, -0.025, 0.134), tool yaw 0 deg
+[WARN] [chess_kinova_arm]: Planning failed! Cartesian planner completed 0.18518518518518517 of the trajectory, less than the threshold 0.999.
+[WARN] [chess_kinova_arm]: Planning attempt 1 of 3 for a straight-line motion to (0.117, -0.025, 0.134), tool yaw 0 deg failed.
+[WARN] [chess_kinova_arm]: Planning failed! Cartesian planner completed 0.18518518518518517 of the trajectory, less than the threshold 0.999.
+[WARN] [chess_kinova_arm]: Planning attempt 2 of 3 for a straight-line motion to (0.117, -0.025, 0.134), tool yaw 0 deg failed.
+[WARN] [chess_kinova_arm]: Planning failed! Cartesian planner completed 0.18518518518518517 of the trajectory, less than the threshold 0.999.
+[WARN] [chess_kinova_arm]: Planning attempt 3 of 3 for a straight-line motion to (0.117, -0.025, 0.134), tool yaw 0 deg failed.
+[ERROR] [chess_kinova_arm]: Could not plan or execute a straight-line motion to (0.117, -0.025, 0.134), tool yaw 0 deg.
+[ERROR] [arm_adapter]: arm_done: id 7 FAILED at action 0: could not descend onto d8; no piece was moved
+[INFO] [arm_adapter]: arm_actions: id 8 move d8d6 (1 action(s))
+[INFO] [chess_kinova_arm]: action 1/1: d8 (0.117, -0.025) -> d6 (0.217, -0.025); fingers open along 135 deg at the pick, 135 deg at the place
+[DEBUG] [chess_kinova_arm]: a pose-goal motion to (0.117, -0.025, 0.264), tool yaw 45 deg
+[DEBUG] [chess_kinova_arm]: a straight-line motion to (0.117, -0.025, 0.134), tool yaw 45 deg
+[WARN] [chess_kinova_arm]: Planning failed! Cartesian planner completed 0.15384615384615385 of the trajectory, less than the threshold 0.999.
+[WARN] [chess_kinova_arm]: Planning attempt 1 of 3 for a straight-line motion to (0.117, -0.025, 0.134), tool yaw 45 deg failed.
+[WARN] [chess_kinova_arm]: Planning failed! Cartesian planner completed 0.15384615384615385 of the trajectory, less than the threshold 0.999.
+[WARN] [chess_kinova_arm]: Planning attempt 2 of 3 for a straight-line motion to (0.117, -0.025, 0.134), tool yaw 45 deg failed.
+[WARN] [chess_kinova_arm]: Planning failed! Cartesian planner completed 0.15384615384615385 of the trajectory, less than the threshold 0.999.
+[WARN] [chess_kinova_arm]: Planning attempt 3 of 3 for a straight-line motion to (0.117, -0.025, 0.134), tool yaw 45 deg failed.
+[ERROR] [chess_kinova_arm]: Could not plan or execute a straight-line motion to (0.117, -0.025, 0.134), tool yaw 45 deg.
+[ERROR] [arm_adapter]: arm_done: id 8 FAILED at action 0: could not descend onto d8; no piece was moved
+
+====================================================================================================
+6. One move at four speed settings
+====================================================================================================
+base: 54.1 s of simulation time (99 s on the wall clock); arm_done: id 1 ok; planning failures 0; parameters: defaults
+slow02: 48.6 s of simulation time (88 s on the wall clock); arm_done: id 1 ok; planning failures 0; parameters: -p slow_speed:=0.2
+low10: 41.9 s of simulation time (75 s on the wall clock); arm_done: id 1 ok; planning failures 0; parameters: -p slow_speed:=0.2 -p travel_clearance:=0.10
+sim06: 28.9 s of simulation time (50 s on the wall clock); arm_done: id 1 ok; planning failures 0; parameters: -p speed:=0.6 -p slow_speed:=0.3 -p travel_clearance:=0.10

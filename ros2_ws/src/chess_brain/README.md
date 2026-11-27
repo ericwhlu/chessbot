@@ -302,6 +302,12 @@ of 2026-10-15) the simulated gripper does not move
    for this arm and the team has to know now). The check takes several minutes and prints its
    progress.
 
+   Close to the arm's base a `#` can be too optimistic: the check asks for joint angles at the
+   carrying and at the gripping height, not whether the arm can travel straight down between
+   them. In Gazebo the arm could not go down onto squares 0.12 and 0.14 m from its base axis that
+   the map showed as `#`; at 0.17 m and beyond it could
+   (`docs/evidence/2026-11-27_gazebo_reach_by_moving.txt`).
+
    Below the map it shows the places for captured pieces in the order the arm fills them (8 to a
    column, further columns away from the board) and says how many pieces fit before the first
    place that is out of reach. A game can capture 30 pieces, so it checks 30 places
@@ -312,7 +318,10 @@ of 2026-10-15) the simulated gripper does not move
    Result for the 400 mm board (50 mm squares) as close as the mount plate allows, the command
    above with `board_x:=0.572`: **54 of 64**; the far rank and two more squares are out of reach
    (`docs/evidence/2026-11-25_gazebo_reach_check_50mm.txt`). With the gripper straight down this
-   arm covers about 0.15 to 0.52 m from its base axis.
+   arm covers about 0.15 to 0.52 m from its base axis. Pushing that board towards the arm, onto
+   the mount plate, brings the far rank into reach, but then the arm cannot go down onto the
+   middle squares of the near rank: no position gives all 64
+   (`docs/evidence/2026-11-27_gazebo_reach_by_moving.txt`).
 
    Result for a 320 mm board (40 mm squares) in the same place, `square_size:=0.04 board_x:=0.492
    board_y:=-0.16` with the captured pieces from `discard_x:=-0.05 discard_y:=0.14`: **64 of 64**
