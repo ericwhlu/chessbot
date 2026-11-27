@@ -1,0 +1,65 @@
+Date: Thu 2026-11-26 23:41 (America/New_York)
+Machine: course VM vcm-54426, course Docker image ghcr.io/mems-intro-to-robotics/mems-robotics-toolkit:kinova-jazzy-20260924, ROS 2 Jazzy;
+         Gazebo station from the course's Lab 6 launch (Gen3 Lite on its mount and plate), MoveIt from
+         kinova_gen3_lite_moveit_config sim.launch.py use_sim_time:=true
+Branch:  feature/integration @ f15ed52 (pulled on the VM before the run; "30 places for captured pieces" in
+         the output is that commit's reach_check)
+Test:    can the Gen3 Lite reach, with the gripper straight down, every square of a 320 mm board (40 mm
+         squares) and a place for every piece a game can capture? The board as close to the arm as the
+         12 in mount plate allows (near edge of the playing area at x = 0.172 m, as for the 50 mm board in
+         2026-11-25_gazebo_reach_check_50mm.txt), rank 8 towards the arm; the first place for captured
+         pieces at discard_x -0.05, discard_y 0.14 in the board frame (8 places to a column, 50 mm apart,
+         further columns away from the board), the two spare queens at x 0.38 in the same frame:
+           ros2 run chess_brain reach_check --ros-args -p use_sim_time:=true -p square_size:=0.04 \
+               -p board_x:=0.492 -p board_y:=-0.16 -p board_yaw_deg:=90.0 -p surface_z:=-0.056 \
+               -p offboard_drop:=0.0066 -p spare_q_w_x:=0.38 -p spare_q_b_x:=0.38 \
+               -p discard_x:=-0.05 -p discard_y:=0.14
+         Every location is asked at the carrying height and at the gripping height (kinova_executor.Settings
+         defaults). The arm does not move.
+
+Result: 64 of 64 squares, room for all 30 captured pieces, both places for spare queens.
+        MoveIt (collision-aware compute_ik) and the package's own kinematics agree on all 192 poses, and
+        the two models differ by 0.00 mm for the arm's pose at start-up. The same result as against MoveIt
+        on mock hardware (2026-11-26_selftest_whole_games_discard_reach.txt, part 5).
+        With the first place for captured pieces at (-0.06, 0.06) instead, only 16 captured pieces fit
+        (same file, part 5; that position was not run in Gazebo with the new check).
+
+Not shown: the real arm. With this position the places for captured pieces run past rank 8 beside the arm's
+base (the nearest is about 0.21 m from the base axis): that part of the table has to be free. Being able to
+reach a square says nothing about the fingers fitting between the pieces on the squares next to it.
+
+The terminal, as pasted:
+
+kinova:/chessbot/ros2_ws# ros2 run chess_brain reach_check --ros-args -p use_sim_time:=true -p square_size:=0.04 -p board_x:=0.492 -p board_y:=-0.16 -p board_yaw_deg:=90.0 -p surface_z:=-0.056 -p offboard_drop:=0.0066 -p spare_q_w_x:=0.38 -p spare_q_b_x:=0.38 -p discard_x:=-0.05 -p discard_y:=0.14
+[INFO] [1795754478.572939570] [chess_reach_check]: MoveIt is ready.
+[INFO] [1795754478.577566963] [chess_reach_check]: end_effector_link: this package's kinematics and MoveIt differ by 0.00 mm.
+[INFO] [1795754479.079411952] [chess_reach_check]: Added the table and mount to MoveIt's planning scene.
+[INFO] [1795754479.085103253] [chess_reach_check]: checking the board: a1 at (0.472, -0.140), h8 at (0.192, 0.140), surface z -0.0560; carrying at z 0.251, gripping at z 0.121 (end_effector_link in base_link); 30 places for captured pieces; asking MoveIt's compute_ik (collision-aware), starting from this package's own solutions. This takes several minutes.
+  ... 16 of 192 poses checked
+  ... 32 of 192 poses checked
+  ... 48 of 192 poses checked
+  ... 64 of 192 poses checked
+  ... 80 of 192 poses checked
+  ... 96 of 192 poses checked
+  ... 112 of 192 poses checked
+  ... 128 of 192 poses checked
+  ... 144 of 192 poses checked
+  ... 160 of 192 poses checked
+  ... 176 of 192 poses checked
+  ... 192 of 192 poses checked
+  8  # # # # # # # #
+  7  # # # # # # # #
+  6  # # # # # # # #
+  5  # # # # # # # #
+  4  # # # # # # # #
+  3  # # # # # # # #
+  2  # # # # # # # #
+  1  # # # # # # # #
+     a b c d e f g h
+  squares fully reachable: 64 of 64
+  places for captured pieces, in the order they are filled (8 per column): ######## ######## ######## ######
+  room for all 30 captured pieces (a game can need 30)
+  off-board: SPARE_Q_B #  SPARE_Q_W #
+  by joint angles alone (no collision check): 64 of 64 squares
+  MoveIt and the kinematics agree on every location, at both heights
+kinova:/chessbot/ros2_ws#

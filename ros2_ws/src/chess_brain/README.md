@@ -313,6 +313,11 @@ of 2026-10-15) the simulated gripper does not move
    above with `board_x:=0.572`: **54 of 64**; the far rank and two more squares are out of reach
    (`docs/evidence/2026-11-25_gazebo_reach_check_50mm.txt`). With the gripper straight down this
    arm covers about 0.15 to 0.52 m from its base axis.
+
+   Result for a 320 mm board (40 mm squares) in the same place, `square_size:=0.04 board_x:=0.492
+   board_y:=-0.16` with the captured pieces from `discard_x:=-0.05 discard_y:=0.14`: **64 of 64**
+   and room for all 30 captured pieces (`docs/evidence/2026-11-26_gazebo_reach_check_40mm.txt`).
+   The places for captured pieces then run past rank 8 beside the arm's base.
 4. Play, with you as the camera until a detector is plugged in:
 
    ```bash

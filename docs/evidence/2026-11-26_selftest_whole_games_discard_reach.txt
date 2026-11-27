@@ -56,8 +56,9 @@ check extended so that it shows it.
 
 Not shown by any of this: Gazebo, the course image, the real arm, a real camera, real pieces, the
 gripper closing on a piece (mock hardware has nothing to grip; in MuJoCo the pieces are held by the
-simulated Robotiq gripper, not by the Gen3 Lite's), promotion. The new part of reach_check has not
-been run in Gazebo.
+simulated Robotiq gripper, not by the Gen3 Lite's), promotion. The new part of reach_check had not
+been run in Gazebo when this was written; it was later that evening, with the same result
+(2026-11-26_gazebo_reach_check_40mm.txt).
 
 In the logs "<repo>" stands for the directory of the checkout. From the MuJoCo logs the lines
 "[brain] arm_actions {...}" are left out (the "arm:" lines below them say the same). From the log of
